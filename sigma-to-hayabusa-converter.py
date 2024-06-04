@@ -50,6 +50,7 @@ OPERATION_TYPE_VALUES = {
     "RenameKey" : "%%1905"
 }
 
+IGNORE_UUID_LIST = Path('ignore-uuid-list.txt').read_text().splitlines()
 
 def get_terminal_keys_recursive(dictionary, keys=None) -> list[str]:
     """
@@ -90,6 +91,9 @@ def assign_uuid_for_convert_rules(obj: dict, logsource_hash:str) -> dict:
     if "id" not in obj:
         return dict(obj)
     original_uuid = obj["id"]
+    if original_uuid in IGNORE_UUID_LIST:
+        msg = f"This rule has UUIDs to be excluded [{original_uuid}]. Conversion skipped."
+        raise Exception(msg)
     hash_bytes = hashlib.md5((original_uuid + logsource_hash).encode()).digest()
     new_obj = dict()
     new_obj["title"] = obj["title"]
