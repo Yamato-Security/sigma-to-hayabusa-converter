@@ -50,7 +50,7 @@ OPERATION_TYPE_VALUES = {
     "RenameKey" : "%%1905"
 }
 
-IGNORE_UUID_LIST = Path('ignore-uuid-list.txt').read_text().splitlines()
+IGNORE_UUID_LIST = [line.split('#')[0].strip() for line in Path('ignore-uuid-list.txt').read_text().splitlines() if not line.strip().startswith('#') and line.split('#')[0].strip() != '']
 
 def get_terminal_keys_recursive(dictionary, keys=None) -> list[str]:
     """
