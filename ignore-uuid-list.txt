@@ -1,0 +1,3 @@
+# These rules are ignored because they have keywords that cause false positives for Windows Defender
+ec19ebab-72dc-40e1-9728-4c0b805d722c # Tamper Windows Defender - PSClassic
+14c71865-6cd3-44ae-adaa-1db923fae5f2 # Tamper Windows Defender - ScriptBlockLogging
