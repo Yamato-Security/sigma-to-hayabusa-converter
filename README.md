@@ -21,8 +21,8 @@ https://python-poetry.org/docs/#installation
 
 [https://github.com/SigmaHQ/sigma](https://github.com/SigmaHQ/sigma)
 
-## About logsource_mapping.py
-`logsource_mapping.py` is a tool to convert the `logsource` field of Sigma rules to Hayabusa format.
+## About sigma-to-hayabusa-converter.py
+`sigma-to-hayabusa-converter.py` is a tool to convert the `logsource` field of Sigma rules to Hayabusa format.
 Since `Hayabusa` at the moment does not support `logsource` for filtering on `Channel` and `EventID` fields and rewriting field names when necessary, we use the following `yaml` mapping files to convert the contents of `logsource` to the `detection` and `condition` fields.
 - sysmon.yaml
 - windows-antivirus.yaml
@@ -30,7 +30,7 @@ Since `Hayabusa` at the moment does not support `logsource` for filtering on `Ch
 - windows-services.yaml
 
 ### Conversion example
-The following Sigma rules are converted to the following two Hayabusa formats after running `logsource_mapping.py`.
+The following Sigma rules are converted to the following two Hayabusa formats after running `sigma-to-hayabusa-converter.py`.
 
 #### Before conversion
 Sigma rule:
@@ -74,9 +74,9 @@ detection:
 ## Usage
 
 1. `git clone https://github.com/SigmaHQ/sigma.git`
-2. `git clone https://github.com/Yamato-Security/hayabusa-rules.git`
-3. `cd hayabusa-rules/tools/sigmac`
+2. `git clone https://github.com/Yamato-Security/sigma-to-hayabusa-converter.git`
+3. `cd sigma-to-hayabusa-converter`
 4. `poetry install --no-root`
-5. `poetry run python logsource_mapping.py -r ../../../sigma -o ./converted_sigma_rules`
+5. `poetry run python sigma-to-hayabusa-converter.py -r ../sigma -o ./converted_sigma_rules`
 
 After executing the commands above, the rules converted to Hayabusa format will be output to the `./converted_sigma_rules` directory.

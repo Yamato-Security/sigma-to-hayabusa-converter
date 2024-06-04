@@ -22,8 +22,8 @@ https://python-poetry.org/docs/#installation
 
 [https://github.com/SigmaHQ/sigma](https://github.com/SigmaHQ/sigma)
 
-## logsource_mapping.pyについて
-`logsource_mapping.py`は、Sigmaルールの`logsource`をHayabusa形式に変換するツールです。  
+## sigma-to-hayabusa-converter.pyについて
+`sigma-to-hayabusa-converter.py`は、Sigmaルールの`logsource`をHayabusa形式に変換するツールです。  
 `Hayabusa`では`logsource`は検知処理に使われないため、 以下`yaml`のマッピングを使い、`logsource`の内容を`detection`,`condition`に変換します。
 - sysmon.yaml
 - windows-antivirus.yaml
@@ -31,7 +31,7 @@ https://python-poetry.org/docs/#installation
 - windows-services.yaml
 
 ### 変換の例
-以下のSigmaルールは、`logsource_mapping.py`実行後、以下2つのHayabusa形式に変換されます。
+以下のSigmaルールは、`sigma-to-hayabusa-converter.py`実行後、以下2つのHayabusa形式に変換されます。
 
 #### 変換前
 Sigmaルール
@@ -76,10 +76,10 @@ detection:
 ## 使い方
 
 1. `git clone https://github.com/SigmaHQ/sigma.git`
-2. `git clone https://github.com/Yamato-Security/hayabusa-rules.git`
-3. `cd hayabusa-rules/tools/sigmac`
+2. `git clone https://github.com/Yamato-Security/sigma-to-hayabusa-converter.git`
+3. `cd sigma-to-hayabusa-converter`
 4. `poetry install --no-root`
-5. `poetry run python logsource_mapping.py -r ../../../sigma -o ./converted_sigma_rules`
+5. `poetry run python sigma-to-hayabusa-converter.py -r ../sigma -o ./converted_sigma_rules`
 
 上記実行後、`./converted_sigma_rules`にHayabusa形式に変換されたルールが出力されます。
 
