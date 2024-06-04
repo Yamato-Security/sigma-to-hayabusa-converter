@@ -7,9 +7,9 @@
 ![version](https://img.shields.io/badge/Platform-Lin-green)
 ![version](https://img.shields.io/badge/Platform-Mac-green)
 
-## Pre-converted Sigma rules
+## Pre-converted Sigma rules in Hayabusa
 
-Sigma rules have already been pre-converted to hayabusa format and placed in the `./rules/sigma` directory. 
+Sigma rules have already been pre-converted to hayabusa format with this tool and placed in Hayabusa's `./rules/sigma` directory. 
 Please refer to this documentation to convert rules on your own for local testing, using the latest rules, etc...
 
 ## Environment
