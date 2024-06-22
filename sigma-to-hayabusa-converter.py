@@ -414,9 +414,10 @@ class LogsourceConverter:
                 yaml.representer.add_representer(type(None), represent_none)
                 yaml.width = 4096
                 yaml.indent(mapping=4, sequence=6, offset=4)
-                for obj in objs:
+                for i, obj in enumerate(objs):
                     yaml.dump(obj, bs)
-                    bs.write('---\n')
+                    if i < len(objs) - 1:
+                        bs.write('---\n')
                 res.append((output_path, bs.getvalue()))
         return res
 
