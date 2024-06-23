@@ -290,7 +290,8 @@ class LogsourceConverter:
             correlation_type = obj.get("correlation", {}).get("type", {})
             if correlation_type in ["event_count", "value_count"]:
                 new_obj = copy.deepcopy(obj)
-                new_obj['ruletype'] = 'Sigma'
+                if 'ruleType' not in new_obj:
+                    new_obj['ruletype'] = 'Sigma'
                 self.sigma_converted.append((False, new_obj))
             else:
                 LOGGER.error(f"This rule has unsupported correlation type:[{correlation_type}]. Conversion skipped.")
@@ -383,8 +384,10 @@ class LogsourceConverter:
                     else:
                         builtin_converted.append(new_obj)
             if len(sysmon_converted) > 1:
+                sysmon_converted[0] = assign_uuid_for_convert_rules(sysmon_converted[0], "sysmon")
                 self.sigma_correlation_converted.append((True, sysmon_converted))
             if len(builtin_converted) > 1:
+                builtin_converted[0] = assign_uuid_for_convert_rules(builtin_converted[0], "security")
                 self.sigma_correlation_converted.append((False, builtin_converted))
 
     def dump_yml(self, base_dir: str, out_dir: str) -> list[tuple[str, str]]:
