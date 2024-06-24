@@ -1,7 +1,7 @@
 import argparse
 import copy
-import hashlib
 import fnmatch
+import hashlib
 import logging
 import os
 import re
@@ -116,6 +116,17 @@ def assign_uuid_for_convert_rules(obj: dict, logsource_hash: str) -> dict:
         elif k != "related":
             new_obj[k] = v  # idの次の行に挿入するためすべて代入しなおす
     return new_obj
+
+
+def referenced_rule_is_uuid(obj: dict) -> bool:
+    if not ("correlation" in obj and "rules" in obj["correlation"]):
+        return False
+    try:
+        for id in obj["correlation"]["rules"]:
+            uuid.UUID(id)
+            return True
+    except ValueError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -371,6 +382,8 @@ class LogsourceConverter:
             correlation['ruleType'] = "Sigma"
             sysmon_converted = [correlation]
             builtin_converted = [correlation]
+            sysmon_uuid_list = []
+            builtin_uuid_list = []
             for obj in obj_list:
                 logsources = self.check_and_get_logsource(obj)
                 if not logsources:
@@ -380,48 +393,49 @@ class LogsourceConverter:
                     if not new_obj:
                         return
                     if ls.service == "sysmon":
+                        if "id" in new_obj:
+                            sysmon_uuid_list.append(new_obj["id"])
                         sysmon_converted.append(new_obj)
                     else:
+                        if "id" in new_obj:
+                            builtin_uuid_list.append(new_obj["id"])
                         builtin_converted.append(new_obj)
             if len(sysmon_converted) > 1:
                 sysmon_converted[0] = assign_uuid_for_convert_rules(sysmon_converted[0], "sysmon")
+                if referenced_rule_is_uuid(sysmon_converted[0]):
+                    sysmon_converted[0]["correlation"]["rules"] = sysmon_uuid_list
                 self.sigma_correlation_converted.append((True, sysmon_converted))
             if len(builtin_converted) > 1:
                 builtin_converted[0] = assign_uuid_for_convert_rules(builtin_converted[0], "security")
+                if referenced_rule_is_uuid(builtin_converted[0]):
+                    builtin_converted[0]["correlation"]["rules"] = builtin_uuid_list
                 self.sigma_correlation_converted.append((False, builtin_converted))
 
-    def dump_yml(self, base_dir: str, out_dir: str) -> list[tuple[str, str]]:
-        """
-        dictをyaml形式のstringに変換する
-        """
-
+    def dump_yaml(self, is_sysmon, objs, base_dir, out_dir):
         def represent_none(self, _):
             return self.represent_scalar('tag:yaml.org,2002:null', u'null')
 
+        output_path = build_out_path(base_dir, out_dir, self.sigma_path, is_sysmon)
+        with StringIO() as bs:
+            yaml = ruamel.yaml.YAML()
+            yaml.representer.add_representer(type(None), represent_none)
+            yaml.width = 4096
+            yaml.indent(mapping=4, sequence=6, offset=4)
+            for i, obj in enumerate(objs):
+                yaml.dump(obj, bs)
+                if i < len(objs) - 1:
+                    bs.write('---\n')
+            return output_path, bs.getvalue()
+
+    def dump_yml(self, base_dir: str, out_dir: str) -> list[tuple[str, str]]:
         res = []
         for is_sysmon, obj in self.sigma_converted:
-            output_path = build_out_path(base_dir, out_dir, self.sigma_path, is_sysmon)
-            with StringIO() as bs:
-                yaml = ruamel.yaml.YAML()
-                yaml.representer.add_representer(type(None), represent_none)
-                yaml.width = 4096
-                yaml.indent(mapping=4, sequence=6, offset=4)
-                yaml.dump(obj, bs)
-                res.append((output_path, bs.getvalue()))
+            res.append(self.dump_yaml(is_sysmon, [obj], base_dir, out_dir))
 
         # 変換後のcorrelationルールをdump
         for is_sysmon, objs in self.sigma_correlation_converted:
-            output_path = build_out_path(base_dir, out_dir, self.sigma_path, is_sysmon)
-            with StringIO() as bs:
-                yaml = ruamel.yaml.YAML()
-                yaml.representer.add_representer(type(None), represent_none)
-                yaml.width = 4096
-                yaml.indent(mapping=4, sequence=6, offset=4)
-                for i, obj in enumerate(objs):
-                    yaml.dump(obj, bs)
-                    if i < len(objs) - 1:
-                        bs.write('---\n')
-                res.append((output_path, bs.getvalue()))
+            res.append(self.dump_yaml(is_sysmon, objs, base_dir, out_dir))
+
         return res
 
 
