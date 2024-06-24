@@ -403,12 +403,16 @@ class LogsourceConverter:
             if len(sysmon_converted) > 1:
                 sysmon_converted[0] = assign_uuid_for_convert_rules(sysmon_converted[0], "sysmon")
                 if referenced_rule_is_uuid(sysmon_converted[0]):
-                    sysmon_converted[0]["correlation"]["rules"] = sysmon_uuid_list
+                    new_obj = copy.deepcopy(sysmon_converted[0])
+                    new_obj["correlation"]["rules"] = sysmon_uuid_list
+                    sysmon_converted[0] = new_obj
                 self.sigma_correlation_converted.append((True, sysmon_converted))
             if len(builtin_converted) > 1:
                 builtin_converted[0] = assign_uuid_for_convert_rules(builtin_converted[0], "security")
                 if referenced_rule_is_uuid(builtin_converted[0]):
-                    builtin_converted[0]["correlation"]["rules"] = builtin_uuid_list
+                    new_obj = copy.deepcopy(builtin_converted[0])
+                    new_obj["correlation"]["rules"] = builtin_uuid_list
+                    builtin_converted[0] = new_obj
                 self.sigma_correlation_converted.append((False, builtin_converted))
 
     def dump_yaml(self, is_sysmon, objs, base_dir, out_dir):
@@ -434,6 +438,7 @@ class LogsourceConverter:
 
         # 変換後のcorrelationルールをdump
         for is_sysmon, objs in self.sigma_correlation_converted:
+            LOGGER.info(objs)
             res.append(self.dump_yaml(is_sysmon, objs, base_dir, out_dir))
 
         return res
