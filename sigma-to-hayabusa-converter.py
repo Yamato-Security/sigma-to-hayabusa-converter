@@ -1,7 +1,7 @@
 import argparse
 import copy
-import hashlib
 import fnmatch
+import hashlib
 import logging
 import os
 import re
@@ -33,8 +33,11 @@ WINDOWS_SECURITY_PROCESS_CREATION_FIELDS = ["SubjectUserSid", "SubjectUserName",
                                             "CommandLine", "TargetUserSid", "TargetUserName", "TargetDomainName",
                                             "TargetLogonId", "ParentProcessName", "MandatoryLabel"]
 
-WINDOWS_SYSMON_REGISTRY_EVENT_FIELDS = ["EventType", "UtcTime", "ProcessId", "ProcessGuid", "Image", "TargetObject", "Details", "NewName"]
-WINDOWS_SECURITY_REGISTRY_EVENT_FIELDS = ["SubjectUserSid", "SubjectUserName", "SubjectDomainName", "SubjectLogonId", "ObjectName", "ObjectValueName", "HandleId", "OperationType", "OldValueType", "OldValue", "NewValueType", "NewValue", "ProcessId", "ProcessName"]
+WINDOWS_SYSMON_REGISTRY_EVENT_FIELDS = ["EventType", "UtcTime", "ProcessId", "ProcessGuid", "Image", "TargetObject",
+                                        "Details", "NewName"]
+WINDOWS_SECURITY_REGISTRY_EVENT_FIELDS = ["SubjectUserSid", "SubjectUserName", "SubjectDomainName", "SubjectLogonId",
+                                          "ObjectName", "ObjectValueName", "HandleId", "OperationType", "OldValueType",
+                                          "OldValue", "NewValueType", "NewValue", "ProcessId", "ProcessName"]
 
 INTEGRITY_LEVEL_VALUES = {
     "LOW": "S-1-16-4096",
@@ -47,10 +50,12 @@ OPERATION_TYPE_VALUES = {
     "CreateKey": "%%1904",
     "SetValue": "%%1905",
     "DeleteValue": "%%1906",
-    "RenameKey" : "%%1905"
+    "RenameKey": "%%1905"
 }
 
-IGNORE_UUID_LIST = [line.split('#')[0].strip() for line in Path('ignore-uuid-list.txt').read_text().splitlines() if not line.strip().startswith('#') and line.split('#')[0].strip() != '']
+IGNORE_UUID_LIST = [line.split('#')[0].strip() for line in Path('ignore-uuid-list.txt').read_text().splitlines() if
+                    not line.strip().startswith('#') and line.split('#')[0].strip() != '']
+
 
 def get_terminal_keys_recursive(dictionary, keys=None) -> list[str]:
     """
@@ -87,7 +92,8 @@ def convert_special_val(key: str, value: str | list[str]) -> str | list[str]:
             return [x.replace("HKLM", r"\REGISTRY\MACHINE").replace("HKU", r"\REGISTRY\USER") for x in value]
     return value
 
-def assign_uuid_for_convert_rules(obj: dict, logsource_hash:str) -> dict:
+
+def assign_uuid_for_convert_rules(obj: dict, logsource_hash: str) -> dict:
     if "id" not in obj:
         return dict(obj)
     original_uuid = obj["id"]
@@ -111,6 +117,16 @@ def assign_uuid_for_convert_rules(obj: dict, logsource_hash:str) -> dict:
             new_obj[k] = v  # idの次の行に挿入するためすべて代入しなおす
     return new_obj
 
+
+def referenced_rule_is_uuid(obj: dict) -> bool:
+    if not ("correlation" in obj and "rules" in obj["correlation"]):
+        return False
+    try:
+        for id in obj["correlation"]["rules"]:
+            uuid.UUID(id)
+            return True
+    except ValueError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -165,7 +181,8 @@ class LogSource:
             return True
         if self.category == "process_creation" and self.event_id == 4688:
             return True
-        if (self.category == "registry_set" or self.category == "registry_add" or self.category == "registry_event" or self.category == "registry_delete") and self.event_id == 4657:
+        if (
+                self.category == "registry_set" or self.category == "registry_add" or self.category == "registry_event" or self.category == "registry_delete") and self.event_id == 4657:
             return True
         return False
 
@@ -189,10 +206,11 @@ class LogSource:
         """
         process_creation/registry_xxルールののSysmon/Securityイベント用変換後フィールドの妥当性チェック
         """
-        if self.category != "process_creation" and self.category != "registry_set" and self.category != "registry_add" and self.category != "registry_event" and self.category != "registry_delete" :
+        if self.category != "process_creation" and self.category != "registry_set" and self.category != "registry_add" and self.category != "registry_event" and self.category != "registry_delete":
             return True
         for key in obj.keys():
-            if key in ["condition", "process_creation", "timeframe", "registry_set", "registry_add", "registry_event", "registry_delete"]:
+            if key in ["condition", "process_creation", "timeframe", "registry_set", "registry_add", "registry_event",
+                       "registry_delete"]:
                 continue
             val_obj = obj[key]
             is_detectable = True
@@ -216,6 +234,7 @@ class LogsourceConverter:
     logsource_map: dict[str, list[LogSource]]
     field_map: dict[str, dict]
     sigma_converted: list[tuple[bool, dict]] = field(default_factory=list)
+    sigma_correlation_converted: list[tuple[bool, list[dict]]] = field(default_factory=list)
 
     def transform_field(self, category: str, obj: dict, original_field):
         """
@@ -277,81 +296,151 @@ class LogsourceConverter:
             raise Exception(msg)
         return []
 
-    def convert(self):
-        """
-        logsourceのcategory/serviceをlogsource_mapに基づき変換し、変換後の内容でdetectionブロックを更新する
-        """
-        obj = create_obj(base_dir=None, file_name=self.sigma_path)
+    def check_and_get_logsource(self, obj: dict) -> list[LogSource]:
+        if obj.get("correlation", {}):
+            correlation_type = obj.get("correlation", {}).get("type", {})
+            if correlation_type in ["event_count", "value_count"]:
+                new_obj = copy.deepcopy(obj)
+                if 'ruleType' not in new_obj:
+                    new_obj['ruletype'] = 'Sigma'
+                self.sigma_converted.append((False, new_obj))
+            else:
+                LOGGER.error(f"This rule has unsupported correlation type:[{correlation_type}]. Conversion skipped.")
+            return []
         keys = get_terminal_keys_recursive(obj["detection"], [])
         modifiers = {re.sub(r".*\|", "", k) for k in keys if "|" in k}
-        if modifiers and [m for m in modifiers if m not in ["all", "base64", "base64offset", "cidr", "contains", "endswith", "endswithfield", "equalsfield", "re", "startswith", "windash"]]:
+        convertible = ["all", "base64", "base64offset", "cidr", "contains", "endswith", "endswithfield", "equalsfield",
+                       "re", "startswith", "windash"]
+        if modifiers and [m for m in modifiers if m not in convertible]:
             LOGGER.error(f"This rule has incompatible field: {obj['detection']}. Conversion skipped.")
-            return
+            return []
         con = obj['detection']['condition']
         if '%' in con or '->' in con or " near " in con:
-            LOGGER.error(f"Error while converting rule [{self.sigma_path}]: Invalid character in condition [{con}] file [{self.sigma_path}]. Conversion skipped.")
-            return  # conditionブロックに変な文字が入っているルールがある。この場合スキップ
-
+            LOGGER.error(
+                f"Error while converting rule [{self.sigma_path}]: Invalid character in condition [{con}] file [{self.sigma_path}]. Conversion skipped.")
+            return []
         logsources = self.get_logsources(obj)
         if not logsources:
             new_obj = copy.deepcopy(obj)
             new_obj['ruletype'] = 'Sigma'
             self.sigma_converted.append((False, new_obj))
-            return  # ログソースマッピングにないcategory/serviceのため、変換処理はスキップ
+            return []
+        return logsources
 
-        for ls in logsources:
-            new_obj = assign_uuid_for_convert_rules(obj, str(ls))
-            if ls.service == "sysmon":
-                if "tags" not in new_obj:
-                    new_obj["tags"] = ["sysmon"]
-                elif "sysmon" not in new_obj["tags"]:
-                    new_obj["tags"].append("sysmon")
-            elif ls.category == "antivirus":
-                new_obj['logsource']["product"] = "windows"
-                new_obj['logsource']["service"] = ls.service
-            detection = copy.deepcopy(new_obj['detection'])
-            # 出力時に順番を logsource -> selection -> conditionにしたいので一旦クリア
-            new_obj['detection'] = dict()
-            # detection用に変換したlogsource条件をセット
-            new_obj['detection'][ls.get_identifier_for_detection(list(detection.keys()))] = ls.get_detection()
-            for key, val in detection.items():
-                key = re.sub(r"\.", "_", key)  # Hayabusa側でSearch-identifierにドットを含むルールに対応していないため、変換
-                val = self.transform_field_recursive(ls.category, val, ls.need_field_conversion())
-                new_obj['detection'][key] = val
-            if " of " not in new_obj['detection']['condition'] and not ls.is_detectable(new_obj['detection']):
-                LOGGER.error(f"Error while converting rule [{self.sigma_path}]: This rule has incompatible field: {new_obj['detection']}. Conversion skipped.")
-                return
-            field_map = self.field_map[ls.category] if ls.category in self.field_map else dict()
-            new_obj['detection']['condition'] = ls.get_condition(new_obj['detection']['condition'],
-                                                                 list(detection.keys()), field_map)
-            if ls.need_field_conversion() and "fields" in new_obj:
-                fields = new_obj['fields']
-                converted_fields = [field_map[f] for f in fields if f in field_map]
-                not_converted_fields = [f for f in fields if f not in field_map]
-                new_obj['fields'] = converted_fields + not_converted_fields
-            new_obj['ruletype'] = 'Sigma'
-            if ls.service == "sysmon":
-                self.sigma_converted.append((True, new_obj))
-            else:
-                self.sigma_converted.append((False, new_obj))
+    def convert_rule(self, obj: dict, ls: LogSource) -> dict | None:
+        new_obj = assign_uuid_for_convert_rules(obj, str(ls))
+        if ls.service == "sysmon":
+            if "tags" not in new_obj:
+                new_obj["tags"] = ["sysmon"]
+            elif "sysmon" not in new_obj["tags"]:
+                new_obj["tags"].append("sysmon")
+        elif ls.category == "antivirus":
+            new_obj['logsource']["product"] = "windows"
+            new_obj['logsource']["service"] = ls.service
+        detection = copy.deepcopy(new_obj['detection'])
+        new_obj['detection'] = dict()
+        new_obj['detection'][ls.get_identifier_for_detection(list(detection.keys()))] = ls.get_detection()
+        for key, val in detection.items():
+            key = re.sub(r"\.", "_", key)
+            val = self.transform_field_recursive(ls.category, val, ls.need_field_conversion())
+            new_obj['detection'][key] = val
+        if " of " not in new_obj['detection']['condition'] and not ls.is_detectable(new_obj['detection']):
+            LOGGER.error(
+                f"Error while converting rule [{self.sigma_path}]: This rule has incompatible field: {new_obj['detection']}. Conversion skipped.")
+            return None
+        field_map = self.field_map[ls.category] if ls.category in self.field_map else dict()
+        new_obj['detection']['condition'] = ls.get_condition(new_obj['detection']['condition'],
+                                                             list(detection.keys()), field_map)
+        if ls.need_field_conversion() and "fields" in new_obj:
+            fields = new_obj['fields']
+            converted_fields = [field_map[f] for f in fields if f in field_map]
+            not_converted_fields = [f for f in fields if f not in field_map]
+            new_obj['fields'] = converted_fields + not_converted_fields
+        new_obj['ruletype'] = 'Sigma'
+        return new_obj
 
-    def dump_yml(self, base_dir: str, out_dir: str) -> list[tuple[str, str]]:
+    def convert(self):
         """
-        dictをyaml形式のstringに変換する
+        logsourceのcategory/serviceをlogsource_mapに基づき変換し、変換後の内容でdetectionブロックを更新する
         """
+        obj_list = create_obj(base_dir=None, file_name=self.sigma_path)
+        if len(obj_list) == 1:
+            logsources = self.check_and_get_logsource(obj_list[0])
+            if not logsources:
+                return  # ログソースマッピングにないcategory/serviceのため、変換処理はスキップ
+            for ls in logsources:
+                new_obj = self.convert_rule(obj_list[0], ls)
+                if not new_obj:
+                    return
+                if ls.service == "sysmon":
+                    self.sigma_converted.append((True, new_obj))
+                else:
+                    self.sigma_converted.append((False, new_obj))
+        else:
+            # correlationルールかつ複数YAMLの場合の変換
+            correlation = obj_list.pop(0)
+            correlation['ruleType'] = "Sigma"
+            sysmon_converted = [correlation]
+            builtin_converted = [correlation]
+            sysmon_uuid_list = []
+            builtin_uuid_list = []
+            for obj in obj_list:
+                logsources = self.check_and_get_logsource(obj)
+                if not logsources:
+                    return  # ログソースマッピングにないcategory/serviceのため、変換処理はスキップ
+                for ls in logsources:
+                    new_obj = self.convert_rule(obj, ls)
+                    if not new_obj:
+                        return
+                    if ls.service == "sysmon":
+                        if "id" in new_obj:
+                            sysmon_uuid_list.append(new_obj["id"])
+                        sysmon_converted.append(new_obj)
+                    else:
+                        if "id" in new_obj:
+                            builtin_uuid_list.append(new_obj["id"])
+                        builtin_converted.append(new_obj)
+            if len(sysmon_converted) > 1:
+                sysmon_converted[0] = assign_uuid_for_convert_rules(sysmon_converted[0], "sysmon")
+                if referenced_rule_is_uuid(sysmon_converted[0]):
+                    new_obj = copy.deepcopy(sysmon_converted[0])
+                    new_obj["correlation"]["rules"] = sysmon_uuid_list
+                    sysmon_converted[0] = new_obj
+                self.sigma_correlation_converted.append((True, sysmon_converted))
+            if len(builtin_converted) > 1:
+                builtin_converted[0] = assign_uuid_for_convert_rules(builtin_converted[0], "security")
+                if referenced_rule_is_uuid(builtin_converted[0]):
+                    new_obj = copy.deepcopy(builtin_converted[0])
+                    new_obj["correlation"]["rules"] = builtin_uuid_list
+                    builtin_converted[0] = new_obj
+                self.sigma_correlation_converted.append((False, builtin_converted))
+
+    def dump_yaml(self, is_sysmon, objs, base_dir, out_dir):
         def represent_none(self, _):
             return self.represent_scalar('tag:yaml.org,2002:null', u'null')
 
+        output_path = build_out_path(base_dir, out_dir, self.sigma_path, is_sysmon)
+        with StringIO() as bs:
+            yaml = ruamel.yaml.YAML()
+            yaml.representer.add_representer(type(None), represent_none)
+            yaml.width = 4096
+            yaml.indent(mapping=4, sequence=6, offset=4)
+            for i, obj in enumerate(objs):
+                yaml.dump(obj, bs)
+                if i < len(objs) - 1:
+                    bs.write('---\n')
+            return output_path, bs.getvalue()
+
+    def dump_yml(self, base_dir: str, out_dir: str) -> list[tuple[str, str]]:
         res = []
         for is_sysmon, obj in self.sigma_converted:
-            output_path = build_out_path(base_dir, out_dir, self.sigma_path, is_sysmon)
-            with StringIO() as bs:
-                yaml = ruamel.yaml.YAML()
-                yaml.representer.add_representer(type(None), represent_none)
-                yaml.width = 4096
-                yaml.indent(mapping=4, sequence=6, offset=4)
-                yaml.dump(obj, bs)
-                res.append((output_path, bs.getvalue()))
+            res.append(self.dump_yaml(is_sysmon, [obj], base_dir, out_dir))
+
+        # 変換後のcorrelationルールをdump
+        for is_sysmon, objs in self.sigma_correlation_converted:
+            LOGGER.info(objs)
+            res.append(self.dump_yaml(is_sysmon, objs, base_dir, out_dir))
+
         return res
 
 
@@ -377,7 +466,7 @@ def build_out_path(base_dir: str, out_dir: str, sigma_path: str, sysmon: bool) -
     return out_dir + '/builtin' + new_path
 
 
-def create_obj(base_dir: Optional[str], file_name: str) -> dict:
+def create_obj(base_dir: Optional[str], file_name: str) -> list[dict]:
     """
     ymlファイルを読み込み、dictを作成
     """
@@ -391,7 +480,7 @@ def create_obj(base_dir: Optional[str], file_name: str) -> dict:
     try:
         with open(file_path, encoding="utf-8") as f:
             yaml = ruamel.yaml.YAML()
-            d = yaml.load(f)
+            d = list(yaml.load_all(f))
             LOGGER.debug(f"loading yaml [{file_path}] done successfully.")
             return d
     except Exception as e:
@@ -399,7 +488,7 @@ def create_obj(base_dir: Optional[str], file_name: str) -> dict:
         sys.exit(1)
 
 
-def create_field_map(key:str, obj: dict) -> dict[str, dict]:
+def create_field_map(key: str, obj: dict) -> dict[str, dict]:
     """
     カテゴリcreate_process用のフィールド名をマッピングするdict作成
     """
@@ -474,12 +563,18 @@ def find_windows_sigma_rule_files(root: str, rule_pattern: str):
             try:
                 with open(filepath, encoding="utf-8") as f:
                     yaml = ruamel.yaml.YAML()
-                    data = yaml.load(f)
-                if data.get('logsource', {}).get('category') != "antivirus" \
-                        and data.get('logsource', {}).get('product') != 'windows':
-                    LOGGER.debug(f"[{filepath}] has no windows rule. Conversion skipped.")
+                    data_lst = list(yaml.load_all(f))
+                data = data_lst[0]
+                if len(data_lst) == 1 and not data.get('correlation', {}):
+                    if data.get('logsource', {}).get('category') != "antivirus" \
+                            and data.get('logsource', {}).get('product') != 'windows':
+                        LOGGER.debug(f"[{filepath}] has no windows rule. Conversion skipped.")
+                        continue
                 else:
-                    yield filepath
+                    if not data.get('correlation', {}):
+                        LOGGER.debug(f"[{filepath}] has multiple yaml. Conversion skipped.")
+                        continue
+                yield filepath
             except Exception as e:
                 LOGGER.error(f"Error while loading yml [{filepath}]: {e}")
 
@@ -512,17 +607,20 @@ if __name__ == '__main__':
 
     # category -> channel/event_id 変換のマッピングデータを作成
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    service2channel = create_service_map(create_obj(script_dir, "windows-services.yaml"))
-    sysmon_map = create_category_map(create_obj(script_dir, 'sysmon.yaml'), service2channel)
-    win_audit_map = create_category_map(create_obj(script_dir, 'windows-audit.yaml'), service2channel)
-    win_service_map = create_category_map(create_obj(script_dir, 'windows-services.yaml'), service2channel)
-    win_antivirus_map = create_category_map(create_obj(script_dir, 'windows-antivirus.yaml'), service2channel)
+    service2channel = create_service_map(create_obj(script_dir, "windows-services.yaml")[0])
+    sysmon_map = create_category_map(create_obj(script_dir, 'sysmon.yaml')[0], service2channel)
+    win_audit_map = create_category_map(create_obj(script_dir, 'windows-audit.yaml')[0], service2channel)
+    win_service_map = create_category_map(create_obj(script_dir, 'windows-services.yaml')[0], service2channel)
+    win_antivirus_map = create_category_map(create_obj(script_dir, 'windows-antivirus.yaml')[0], service2channel)
     all_category_map = merge_category_map(service2channel,
                                           [sysmon_map, win_audit_map, win_service_map, win_antivirus_map])
-    process_creation_field_map = create_field_map("fieldmappings_process", create_obj(script_dir, 'windows-audit.yaml'))
-    registry_field_map = create_field_map("fieldmappings_registry", create_obj(script_dir, 'windows-audit.yaml'))
-    antivirus_field_map = create_field_map("fieldmappings", create_obj(script_dir, 'windows-antivirus.yaml'))
-    field_map = {"process_creation": process_creation_field_map} | {"antivirus": antivirus_field_map} | {"registry_set": registry_field_map}| {"registry_add": registry_field_map}| {"registry_event": registry_field_map}| {"registry_delete": registry_field_map}
+    process_creation_field_map = create_field_map("fieldmappings_process",
+                                                  create_obj(script_dir, 'windows-audit.yaml')[0])
+    registry_field_map = create_field_map("fieldmappings_registry", create_obj(script_dir, 'windows-audit.yaml')[0])
+    antivirus_field_map = create_field_map("fieldmappings", create_obj(script_dir, 'windows-antivirus.yaml')[0])
+    field_map = {"process_creation": process_creation_field_map} | {"antivirus": antivirus_field_map} | {
+        "registry_set": registry_field_map} | {"registry_add": registry_field_map} | {
+                    "registry_event": registry_field_map} | {"registry_delete": registry_field_map}
     LOGGER.info("Loading logsource mapping yaml(sysmon/windows-audit/windows-services) done.")
 
     # Sigmaディレクトリから対象ファイルをリストアップ
@@ -546,5 +644,6 @@ if __name__ == '__main__':
             file_err_cnt += 1
             LOGGER.error(f"Error while converting rule [{sigma_file}]: {err}")
     end_time = time.perf_counter()
-    LOGGER.info(f"[{file_cnt}] files created successfully.[{file_err_cnt}] files failed to convert. Created files were saved under [{args.output}].")
+    LOGGER.info(
+        f"[{file_cnt}] files created successfully.[{file_err_cnt}] files failed to convert. Created files were saved under [{args.output}].")
     LOGGER.info(f"Script took [{'{:.2f}'.format(end_time - start_time)}] seconds.")

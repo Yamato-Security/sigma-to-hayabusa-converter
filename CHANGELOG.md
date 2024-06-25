@@ -1,5 +1,9 @@
 # Changes
 
+## v2.16.0 [2024/06/25]
+
+- Support for converting Sigma correlation rules with multiple rules inside a single `.yml` file. #9 (@fukusuket)
+
 ## v2.15.0 [2024/06/05]
 
 - An ignore list `ignore-uuid-list.txt` was added to ignore the rules that cause false positives with Windows Defender. (#672) (@fukusuket)
