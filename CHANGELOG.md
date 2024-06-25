@@ -1,6 +1,6 @@
 # Changes
 
-## v2.16.0 [2024/xx/xx]
+## v2.16.0 [2024/06/25]
 
 - Support for converting Sigma correlation rules with multiple rules inside a single `.yml` file. #9 (@fukusuket)
 
