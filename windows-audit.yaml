@@ -40,6 +40,14 @@ logsources:
         rewrite:
             product: windows
             service: security
+    network_connection:
+        category: network_connection
+        product: windows
+        conditions:
+            EventID: 5156
+        rewrite:
+            product: windows
+            service: security
 fieldmappings_process:
     Image: NewProcessName
     ProcessId: NewProcessId
@@ -54,3 +62,10 @@ fieldmappings_registry:
     Details: NewValue
     EventType: OperationType
     TargetObject: ObjectName
+fieldmappings_network:
+    Image: Application
+    Initiated: Direction
+    SourceIp: SourceAddress
+    DestinationIp: DestAddress
+    DestinationPort: DestPort
+    Protocol: Protocol

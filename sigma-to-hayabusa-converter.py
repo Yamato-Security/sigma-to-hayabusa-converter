@@ -39,6 +39,14 @@ WINDOWS_SECURITY_REGISTRY_EVENT_FIELDS = ["SubjectUserSid", "SubjectUserName", "
                                           "ObjectName", "ObjectValueName", "HandleId", "OperationType", "OldValueType",
                                           "OldValue", "NewValueType", "NewValue", "ProcessId", "ProcessName"]
 
+WINDOWS_SYSMON_NETWORK_EVENT_FIELDS = ["RuleName", "UtcTime", "ProcessGuid", "ProcessId", "Image", "User", "Protocol",
+                                       "Initiated", "SourceIsIpv6", "SourceIp", "SourceHostname", "SourcePort",
+                                       "SourcePortName", "DestinationIsIpv6", "DestinationIp", "DestinationHostname",
+                                       "DestinationPort", "DestinationPortName", "CommandLine", "ParentImage"]
+WINDOWS_SECURITY_NETWORK_EVENT_FIELDS = ["ProcessID", "Application", "Protocol", "Direction", "SourceAddress",
+                                         "SourcePort", "DestAddress", "DestPort", "FilterRTID", "LayerName",
+                                         "LayerRTID", "RemoteUserID", "RemoteMachineID"]
+
 INTEGRITY_LEVEL_VALUES = {
     "LOW": "S-1-16-4096",
     "MEDIUM": "S-1-16-8192",
@@ -51,6 +59,16 @@ OPERATION_TYPE_VALUES = {
     "SetValue": "%%1905",
     "DeleteValue": "%%1906",
     "RenameKey": "%%1905"
+}
+
+CONNECTION_INITIATED_VALUES = {
+    "true": "%%14593",
+    "false": "%%14592"
+}
+
+CONNECTION_PROTOCOL_VALUES = {
+    "tcp": "6",
+    "udp": "17"
 }
 
 IGNORE_UUID_LIST = [line.split('#')[0].strip() for line in Path('ignore-uuid-list.txt').read_text().splitlines() if
@@ -90,6 +108,15 @@ def convert_special_val(key: str, value: str | list[str]) -> str | list[str]:
             return value.replace("HKLM", r"\REGISTRY\MACHINE").replace("HKU", r"\REGISTRY\USER")
         elif isinstance(value, list):
             return [x.replace("HKLM", r"\REGISTRY\MACHINE").replace("HKU", r"\REGISTRY\USER") for x in value]
+    elif key == "Direction":
+        return str(CONNECTION_INITIATED_VALUES.get(value, value))
+    elif key == "Application":
+        if isinstance(value, str):
+            return value.replace("C:", "\\device\\harddiskvolume?")
+        elif isinstance(value, list):
+            return [x.replace("C:", "\\device\\harddiskvolume?") for x in value]
+    elif key == "Protocol":
+        return str(CONNECTION_PROTOCOL_VALUES.get(value, value))
     return value
 
 
@@ -175,7 +202,7 @@ class LogSource:
 
     def need_field_conversion(self) -> bool:
         """
-        process_creation/registry_xxルールのSysmon/Securityイベント用のフィールド変換要否を判定
+        process_creation/registry_xx/network_connectionルールのSysmon/Securityイベント用のフィールド変換要否を判定
         """
         if self.category == "antivirus":
             return True
@@ -184,10 +211,14 @@ class LogSource:
         if (
                 self.category == "registry_set" or self.category == "registry_add" or self.category == "registry_event" or self.category == "registry_delete") and self.event_id == 4657:
             return True
+        if self.category == "network_connection" and self.event_id == 5156:
+            return True
         return False
 
     def is_detectable_fields(self, keys, func) -> bool:
         common_fields = ["CommandLine", "ProcessId"]
+        if self.category == "network_connection" and (self.event_id == 5156 or self.event_id == 3):
+            common_fields = ["ProcessId", "SourcePort", "Protocol"]
         keys = [re.sub(r"\|.*", "", k) for k in keys]
         keys = [k for k in keys if k not in common_fields]
         if not keys:
@@ -200,17 +231,23 @@ class LogSource:
             return not func([k in WINDOWS_SYSMON_REGISTRY_EVENT_FIELDS for k in keys])
         elif self.event_id == 12 or self.event_id == 13 or self.event_id == 14:
             return not func([k in WINDOWS_SECURITY_REGISTRY_EVENT_FIELDS for k in keys])
+        elif self.event_id == 5156:
+            return not func([k in WINDOWS_SYSMON_NETWORK_EVENT_FIELDS for k in keys])
+        elif self.event_id == 3:
+            return not func([k in WINDOWS_SECURITY_NETWORK_EVENT_FIELDS for k in keys])
         return True
 
-    def is_detectable(self, obj: dict) -> bool:
+    def is_detectable(self, obj: dict, check_only_selection=False) -> bool:
         """
-        process_creation/registry_xxルールののSysmon/Securityイベント用変換後フィールドの妥当性チェック
+        process_creation/registry_xx/network_connectionルールののSysmon/Securityイベント用変換後フィールドの妥当性チェック
         """
-        if self.category != "process_creation" and self.category != "registry_set" and self.category != "registry_add" and self.category != "registry_event" and self.category != "registry_delete":
+        if self.category != "process_creation" and self.category != "registry_set" and self.category != "registry_add" and self.category != "registry_event" and self.category != "registry_delete" and self.category != "network_connection":
             return True
         for key in obj.keys():
+            if check_only_selection and key != "selection":
+                continue
             if key in ["condition", "process_creation", "timeframe", "registry_set", "registry_add", "registry_event",
-                       "registry_delete"]:
+                       "registry_delete", "network_connection"]:
                 continue
             val_obj = obj[key]
             is_detectable = True
@@ -344,7 +381,12 @@ class LogsourceConverter:
             key = re.sub(r"\.", "_", key)
             val = self.transform_field_recursive(ls.category, val, ls.need_field_conversion())
             new_obj['detection'][key] = val
-        if " of " not in new_obj['detection']['condition'] and not ls.is_detectable(new_obj['detection']):
+        cond = str(new_obj['detection']['condition'])
+        if (cond.endswith("selection") or "selection and " in cond) and not ls.is_detectable(new_obj['detection'], True):
+            LOGGER.error(
+                f"Error while converting rule [{self.sigma_path}]: This rule has incompatible field: {new_obj['detection']}. Conversion skipped.")
+            return None
+        if " of " not in cond and not ls.is_detectable(new_obj['detection']):
             LOGGER.error(
                 f"Error while converting rule [{self.sigma_path}]: This rule has incompatible field: {new_obj['detection']}. Conversion skipped.")
             return None
@@ -617,10 +659,12 @@ if __name__ == '__main__':
     process_creation_field_map = create_field_map("fieldmappings_process",
                                                   create_obj(script_dir, 'windows-audit.yaml')[0])
     registry_field_map = create_field_map("fieldmappings_registry", create_obj(script_dir, 'windows-audit.yaml')[0])
+    network_field_map = create_field_map("fieldmappings_network", create_obj(script_dir, 'windows-audit.yaml')[0])
     antivirus_field_map = create_field_map("fieldmappings", create_obj(script_dir, 'windows-antivirus.yaml')[0])
     field_map = {"process_creation": process_creation_field_map} | {"antivirus": antivirus_field_map} | {
         "registry_set": registry_field_map} | {"registry_add": registry_field_map} | {
-                    "registry_event": registry_field_map} | {"registry_delete": registry_field_map}
+                    "registry_event": registry_field_map} | {"registry_delete": registry_field_map} | {
+                    "network_connection": network_field_map}
     LOGGER.info("Loading logsource mapping yaml(sysmon/windows-audit/windows-services) done.")
 
     # Sigmaディレクトリから対象ファイルをリストアップ
