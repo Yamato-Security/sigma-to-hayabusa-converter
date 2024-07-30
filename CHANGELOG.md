@@ -1,5 +1,9 @@
 # Changes
 
+## v2.16.0 [2024/07/30]
+
+- We are now creating built-in Windows `Security 5156` rules for `category: network_connection` rules. Before, the rules would only detect `Sysmon 3` events. #10 (@fukusuket) 
+
 ## v2.16.0 [2024/06/25]
 
 - Support for converting Sigma correlation rules with multiple rules inside a single `.yml` file. #9 (@fukusuket)

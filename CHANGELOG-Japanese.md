@@ -1,5 +1,9 @@
 # 変更点
 
+## v2.16.0 [2024/07/30]
+
+- 現在、Windowsビルトインの`Security 5156`イベントの`category: network_connection`ルールを作成している。 #10 (@fukusuket)
+
 ## v2.16.0 [2024/06/25]
 
 - `.yml`ファイル内に複数のルールを持つSigma相関ルールの変換に対応した。 #9 (@fukusuket)
