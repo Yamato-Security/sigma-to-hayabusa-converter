@@ -649,18 +649,18 @@ if __name__ == '__main__':
 
     # category -> channel/event_id 変換のマッピングデータを作成
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    service2channel = create_service_map(create_obj(script_dir, "windows-services.yaml")[0])
-    sysmon_map = create_category_map(create_obj(script_dir, 'sysmon.yaml')[0], service2channel)
-    win_audit_map = create_category_map(create_obj(script_dir, 'windows-audit.yaml')[0], service2channel)
-    win_service_map = create_category_map(create_obj(script_dir, 'windows-services.yaml')[0], service2channel)
-    win_antivirus_map = create_category_map(create_obj(script_dir, 'windows-antivirus.yaml')[0], service2channel)
-    all_category_map = merge_category_map(service2channel,
-                                          [sysmon_map, win_audit_map, win_service_map, win_antivirus_map])
+    service2channel = create_service_map(create_obj(script_dir, "services-mapping.yaml")[0])
+    sysmon_map = create_category_map(create_obj(script_dir, 'sysmon-category-mapping.yaml')[0], service2channel)
+    win_audit_map = create_category_map(create_obj(script_dir, 'builtin-category-mapping.yaml')[0], service2channel)
+    win_service_map = create_category_map(create_obj(script_dir, 'services-mapping.yaml')[0], service2channel)
+    all_category_map = merge_category_map(service2channel,[sysmon_map, win_audit_map, win_service_map])
     process_creation_field_map = create_field_map("fieldmappings_process",
-                                                  create_obj(script_dir, 'windows-audit.yaml')[0])
-    registry_field_map = create_field_map("fieldmappings_registry", create_obj(script_dir, 'windows-audit.yaml')[0])
-    network_field_map = create_field_map("fieldmappings_network", create_obj(script_dir, 'windows-audit.yaml')[0])
-    antivirus_field_map = create_field_map("fieldmappings", create_obj(script_dir, 'windows-antivirus.yaml')[0])
+                                                  create_obj(script_dir, 'builtin-category-mapping.yaml')[0])
+    registry_field_map = create_field_map("fieldmappings_registry", create_obj(script_dir,
+                                                                               'builtin-category-mapping.yaml')[0])
+    network_field_map = create_field_map("fieldmappings_network", create_obj(script_dir,
+                                                                             'builtin-category-mapping.yaml')[0])
+    antivirus_field_map = create_field_map("fieldmappings_antivirus", create_obj(script_dir, 'builtin-category-mapping.yaml')[0])
     field_map = {"process_creation": process_creation_field_map} | {"antivirus": antivirus_field_map} | {
         "registry_set": registry_field_map} | {"registry_add": registry_field_map} | {
                     "registry_event": registry_field_map} | {"registry_delete": registry_field_map} | {
