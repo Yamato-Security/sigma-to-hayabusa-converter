@@ -139,7 +139,7 @@ def assign_uuid_for_convert_rules(obj: dict, logsource_hash: str) -> dict:
                 related = obj["related"]
                 if not [x for x in related if x["id"] == original_uuid]:
                     related.append({"id": original_uuid, "type": "derived"})
-                    new_obj["related"] = related
+                new_obj["related"] = related
         elif k != "related":
             new_obj[k] = v  # idの次の行に挿入するためすべて代入しなおす
     return new_obj
