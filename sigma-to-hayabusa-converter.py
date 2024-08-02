@@ -139,7 +139,7 @@ def assign_uuid_for_convert_rules(obj: dict, logsource_hash: str) -> dict:
                 related = obj["related"]
                 if not [x for x in related if x["id"] == original_uuid]:
                     related.append({"id": original_uuid, "type": "derived"})
-                    new_obj["related"] = related
+                new_obj["related"] = related
         elif k != "related":
             new_obj[k] = v  # idの次の行に挿入するためすべて代入しなおす
     return new_obj
@@ -500,7 +500,6 @@ def build_out_path(base_dir: str, out_dir: str, sigma_path: str, sysmon: bool) -
     new_path = new_path.replace('/rules-compliance', '/compliance')
     new_path = new_path.replace('/rules-dfir', '/dfir')
     new_path = new_path.replace('/rules-emerging-threats', '/emerging-threats')
-    new_path = new_path.replace('/rules-placeholder', '/placeholder')
     new_path = new_path.replace('/rules-threat-hunting', '/threat-hunting')
     new_path = new_path.replace('/rules', '')
     if sysmon:
@@ -602,6 +601,8 @@ def find_windows_sigma_rule_files(root: str, rule_pattern: str):
             filepath = os.path.join(dirpath, filename)
             if not any(target in dirpath for target in ["rule", "deprecated", "unsupported"]):
                 continue  # フォルダパスにrule/deprecated/unsupportedがつかないものは、Sigmaルールと関係ないため、除外
+            if  any(target in dirpath for target in ["rules-placeholder"]):
+                continue  # rules-placeholderはサポートしていないため、除外
             try:
                 with open(filepath, encoding="utf-8") as f:
                     yaml = ruamel.yaml.YAML()
@@ -649,18 +650,18 @@ if __name__ == '__main__':
 
     # category -> channel/event_id 変換のマッピングデータを作成
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    service2channel = create_service_map(create_obj(script_dir, "windows-services.yaml")[0])
-    sysmon_map = create_category_map(create_obj(script_dir, 'sysmon.yaml')[0], service2channel)
-    win_audit_map = create_category_map(create_obj(script_dir, 'windows-audit.yaml')[0], service2channel)
-    win_service_map = create_category_map(create_obj(script_dir, 'windows-services.yaml')[0], service2channel)
-    win_antivirus_map = create_category_map(create_obj(script_dir, 'windows-antivirus.yaml')[0], service2channel)
-    all_category_map = merge_category_map(service2channel,
-                                          [sysmon_map, win_audit_map, win_service_map, win_antivirus_map])
+    service2channel = create_service_map(create_obj(script_dir, "services-mapping.yaml")[0])
+    sysmon_map = create_category_map(create_obj(script_dir, 'sysmon-category-mapping.yaml')[0], service2channel)
+    win_audit_map = create_category_map(create_obj(script_dir, 'builtin-category-mapping.yaml')[0], service2channel)
+    win_service_map = create_category_map(create_obj(script_dir, 'services-mapping.yaml')[0], service2channel)
+    all_category_map = merge_category_map(service2channel,[sysmon_map, win_audit_map, win_service_map])
     process_creation_field_map = create_field_map("fieldmappings_process",
-                                                  create_obj(script_dir, 'windows-audit.yaml')[0])
-    registry_field_map = create_field_map("fieldmappings_registry", create_obj(script_dir, 'windows-audit.yaml')[0])
-    network_field_map = create_field_map("fieldmappings_network", create_obj(script_dir, 'windows-audit.yaml')[0])
-    antivirus_field_map = create_field_map("fieldmappings", create_obj(script_dir, 'windows-antivirus.yaml')[0])
+                                                  create_obj(script_dir, 'builtin-category-mapping.yaml')[0])
+    registry_field_map = create_field_map("fieldmappings_registry", create_obj(script_dir,
+                                                                               'builtin-category-mapping.yaml')[0])
+    network_field_map = create_field_map("fieldmappings_network", create_obj(script_dir,
+                                                                             'builtin-category-mapping.yaml')[0])
+    antivirus_field_map = create_field_map("fieldmappings_antivirus", create_obj(script_dir, 'builtin-category-mapping.yaml')[0])
     field_map = {"process_creation": process_creation_field_map} | {"antivirus": antivirus_field_map} | {
         "registry_set": registry_field_map} | {"registry_add": registry_field_map} | {
                     "registry_event": registry_field_map} | {"registry_delete": registry_field_map} | {

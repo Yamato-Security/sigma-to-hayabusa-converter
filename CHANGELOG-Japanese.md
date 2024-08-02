@@ -1,5 +1,11 @@
 # 変更点
 
+## v2.16.0 [2024/08/02]
+
+- 設定ファイルを統合し、名前を変更した。 #11 (@fukusuket)
+- 派生ルールIDを修正した。 #13 (@fukusuket)
+- "Placeholder"ルールを無視するようにした。 #14 (@fukusuket)
+
 ## v2.16.0 [2024/07/30]
 
 - 現在、Windowsビルトインの`Security 5156`イベントの`category: network_connection`ルールを作成している。 #10 (@fukusuket)

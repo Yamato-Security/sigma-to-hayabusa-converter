@@ -1,5 +1,11 @@
 # Changes
 
+## v2.16.0 [2024/08/02]
+
+- Config files were consolidated and renamed. #11 (@fukusuket)
+- Fixed derived rule IDs. #13 (@fukusuket)
+- "Placeholder" rules are now ignored. #14 (@fukusuket)
+
 ## v2.16.0 [2024/07/30]
 
 - We are now creating built-in Windows `Security 5156` rules for `category: network_connection` rules. Before, the rules would only detect `Sysmon 3` events. #10 (@fukusuket) 
