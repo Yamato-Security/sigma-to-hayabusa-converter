@@ -12,7 +12,8 @@
 - [Curation of Sigma Rules for Windows Event Logs](#curation-of-sigma-rules-for-windows-event-logs)
 - [Table of Contents](#table-of-contents)
 - [About this repository](#about-this-repository)
-- [The challenges with upstream Sigma rules for Windows event logs](#the-challenges-with-upstream-sigma-rules-for-windows-event-logs)
+- [TLDR](#tldr)
+- [Challenges with upstream Sigma rules for Windows event logs](#challenges-with-upstream-sigma-rules-for-windows-event-logs)
   - [About the `logsource` field](#about-the-logsource-field)
     - [Service fields](#service-fields)
       - [Single channel example:](#single-channel-example)
@@ -20,8 +21,9 @@
       - [Current list of service mappings](#current-list-of-service-mappings)
       - [Service mapping sources](#service-mapping-sources)
     - [Category fields](#category-fields)
-    - [Category field example:](#category-field-example)
+      - [Category field example:](#category-field-example)
       - [Current list of category mappings](#current-list-of-category-mappings)
+      - [Category field challenges](#category-field-challenges)
       - [Category mapping sources](#category-mapping-sources)
 - [Benefits and challenges of abstracting the log source](#benefits-and-challenges-of-abstracting-the-log-source)
   - [Log source abstraction benefits:](#log-source-abstraction-benefits)
@@ -31,8 +33,20 @@
   - [After conversion](#after-conversion)
 - [Conversion commonalities](#conversion-commonalities)
 - [Conversion limitations](#conversion-limitations)
-- [Process creation event comparison and rule conversion](#process-creation-event-comparison-and-rule-conversion)
-- [](#)
+- [Sysmon and built-in event comparison and rule conversion](#sysmon-and-built-in-event-comparison-and-rule-conversion)
+  - [Process creation](#process-creation)
+    - [Comparison:](#comparison)
+    - [Conversion notes:](#conversion-notes)
+    - [Other notes:](#other-notes)
+    - [Sigma rule writing](#sigma-rule-writing)
+    - [Built-in log settings](#built-in-log-settings)
+      - [Enabling with group policy](#enabling-with-group-policy)
+      - [Enabling on the command line](#enabling-on-the-command-line)
+  - [Network connection](#network-connection)
+    - [Comparison:](#comparison-1)
+    - [Conversion notes:](#conversion-notes-1)
+    - [Sigma rule writing:](#sigma-rule-writing-1)
+  - [Registry events](#registry-events)
 - [Pre-converted Sigma rules](#pre-converted-sigma-rules)
 - [Tool Environment](#tool-environment)
 - [Tool usage](#tool-usage)
@@ -45,11 +59,15 @@ This repository contains documentation of how Yamato Security curates upstream [
 This tool is used mainly for creating the curated Sigma ruleset hosted at [https://github.com/Yamato-Security/hayabusa-rules](https://github.com/Yamato-Security/hayabusa-rules) which is used by [Hayabusa](https://github.com/Yamato-Security/hayabusa) and [Velociraptor](https://github.com/Velocidex/velociraptor)
 We hope this information may be useful for other projects that are trying to use Sigma rules for detecting attacks in Windows event logs.
 
-# The challenges with upstream Sigma rules for Windows event logs
+# TLDR
+
+blah blah
+
+# Challenges with upstream Sigma rules for Windows event logs
 
 The main challenge for creating a native Sigma rule parser for Windows event logs, in our experience, has been to support the `logsource` field.
 Currently, this is one of the few things that Hayabusa does not support natively yet as this is still very complex and a work in progress.
-For the time being, we are getting around this by converting the upstream rules into an easier to use format as explained in detail in this document.
+For the time being, we are getting around this by converting the upstream rules into an easier-to-use format as explained in detail in this document.
 
 ## About the `logsource` field
 
@@ -144,7 +162,7 @@ They are based on the service mapping information from [https://github.com/Sigma
 Most `category` fields will just add a condition to check for certain event IDs in the `EventID` field in addition to searching for a specific `Channel`.
 The category names are mostly based off of [Sysmon](https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon) events with some additional categories for built-in PowerShell logs and Windows Defender.
 
-### Category field example:
+#### Category field example:
 
 ```
 process_creation:
@@ -195,10 +213,13 @@ process_creation:
 | sysmon_status                | sysmon              | 4, 16                                           |
 | wmi_event                    | sysmon              | 19, 20, 21                                      |
 
+#### Category field challenges
+
 You may have noticed that the same `category` can use multiple services and event IDs (**※indicated in bold**). 
 That means that it is possible to use some Sigma rules designed for `sysmon` with similar built-in Windows `security` event logs if the fields that the rule uses also exist in the built-in event log.
 In that case, the field names and sometimes also the values may need to be converted to match the field names and values of the built-in `security` event log.
-The details of how we do this conversion and the compatibility between `sysmon` logs and `security` logs are explained later in this document.
+Although this may be as simple as renaming some field names for certain categories, for other categories this may require various conversions in field values as well.
+How we do this conversion and the compatibility between `sysmon` logs and `security` logs are explained in detail later in this document.
 
 #### Category mapping sources
 
@@ -276,7 +297,7 @@ Also, the original `Image` field name has been changed to `NewProcessName`.
 
 Before explaining in details on how we convert specific categories, we will explain any part of the conversion that applies to all rules.
 
-1. Any rule that has an ID in `ignore-uuid-list.txt` will be ignored. Currently we are only ignoring two rules that cause false positives on Windows defender because they have keywords like `mimikatz` in them.
+1. Any rule that has an ID in `ignore-uuid-list.txt` will be ignored. Currently we are only ignoring rules that cause false positives on Windows defender because they have keywords like `mimikatz` in them.
 
 2. "Placeholder" rules are ignored because they cannot be used as-is. These are rules that are placed in the `rules-placeholder` folder in the Sigma repository [here](https://github.com/SigmaHQ/sigma/tree/master/rules-placeholder/windows/).
 
@@ -330,7 +351,9 @@ Before explaining in details on how we convert specific categories, we will expl
 
 There is only one bug at the moment in that comment lines in Sigma rules will not included in the outputted rules unless the comments follow some source code.
 
-# Process creation event comparison and rule conversion
+# Sysmon and built-in event comparison and rule conversion
+
+## Process creation
 
 * Category: `process_creation`
 * Sysmon
@@ -340,9 +363,129 @@ There is only one bug at the moment in that comment lines in Sigma rules will no
   * Channel: `Security`
   * Event ID: `4688`
 
+### Comparison:
 
+![Process Creation Comparison](images/process_creation_comparison.png)
 
-# 
+### Conversion notes:
+
+1. `User` field information needs to be separated into `SubjectUserName` and `SubjectDomainName` fields.
+2. `LogonId` field name changes to `SubjectLogonId` and any letters in the hex value need to become lowercase.
+3. `ProcessId` field name changes to `NewProcessId` and the value needs to be converted to hex.
+4. `Image` field name changes to `NewProcessName`.
+5. `ParentProcessId` field name changes to `ProcessId` and the value needs to be converted to hex.
+6. `ParentImage` field names changes to `ParentProcessName`.
+7. `IntegrityLevel` field name changes to `MandatoryLabel` and the following value conversion is needed:
+   * `Low`: `S-1-16-4096`
+   * `Medium`: `S-1-16-8192`
+   * `High`: `S-1-16-12288`
+   * `System`: `S-1-16-16384`
+8. If the rule contains the following fields that only exist in `Security 4688` events, then we do not create a `Sysmon 1` rule:
+   * `SubjectUserSid`, `TokenElevationType`, `TargetUserSid`, `TargetUserName`, `TargetDomainName`, `TargetLogonId`
+9. If the rule contains the following fields that only exist in `Sysmon 1` events, then we do not create a `Security 4688` rule:
+   * `RuleName`, `UtcTime`, `ProcessGuid`, `FileVersion`, `Description`, `Product`, `Company`, `OriginalFileName`, `CurrentDirectory`, `LogonGuid`, `TerminalSessionId`, `Hashes`, `ParentProcessGuid`, `ParentCommandLine`, `ParentUser`
+10. There is a exception to #8 and #9 in that even if a field that only exists in one log event is used, if that field is in an `OR` condition, then you still should create that rule. For example, the following rule should not generate a `Security 4688` rule because the `OriginalFileName` field is required.
+    ```
+    selection_img:
+        Image|endswith: \addinutil.exe
+        OriginalFileName: AddInUtil.exe
+    ```  
+    However, a rule with the following condition should create a `Security 4688` rule because `OriginalFileName` is optional.
+    ```
+    selection_img:
+        - Image|endswith: \addinutil.exe
+        - OriginalFileName: AddInUtil.exe
+    ```
+    Things get difficult in that your parser has to understand not just the logic inside selections but also inside the `condition` field. So for example the following rule **should not** create a `Security 4688` rule because it uses `AND` logic.
+    ```
+    selection_img:
+        Image|endswith: \addinutil.exe
+    selection_orig:
+        OriginalFileName: AddInUtil.exe
+    condition: selection_img and selection_orig
+    ```    
+    However, the following rule **should** create a `Security 4688` rule becuase is uses `OR` logic.
+    ```
+    selection_img:
+        Image|endswith: \addinutil.exe
+    selection_orig:
+        OriginalFileName: AddInUtil.exe
+    condition: selection_img or selection_orig
+    ```     
+
+### Other notes:
+
+* `SubjectUserSid` field in `Security 4688` shows the SID, however, in the rendered event log `Message` it is converted to `DOMAIN\User`.
+* `Security 4688` events may not include command line option information in `CommandLine` depending on the settings.
+* `TokenElevationType` is displayed as-is in the `Message` and not rendered.
+* `S-1-16-4096`, etc... inside `MandatoryLabel` gets converted to `Mandatory Label\Low Mandatory Level`, etc... in the rendered `Message`.
+
+### Sigma rule writing
+* Currently, <TODO> percent of `process_creation` rules cannot be converted to `builtin` rules because they rely on the following field names that do not exist in `Security 4688`:
+  * field1
+  * field2
+* If you use any field that exists in a `sysmon` log but not a `builtin` log then make sure you make that field optional so that it is still possible to use the rule for `builtin` logs. For example:
+  ```
+  selection_img:
+      - Image|endswith: \addinutil.exe
+      - OriginalFileName: AddInUtil.exe
+  ```
+  This seleciton is looking for when the process is named `addinutil.exe`. The problem is that an attacker could just rename the filename in order to bypass the rule. The `OriginalFileName` field that only exists in Sysmon logs is the filename that gets embedded into the binary at compile-time. Even if an attacker renames the file, the embedded name will not change so this rule can detect attacks where the attacker has renamed the file when using Sysmon, and also can be used to detect attacks where the filename was not changed with standard built-in logs.
+
+### Built-in log settings
+
+Very unfortunately, the most important built-in `Security 4688` process creation event logs are not enabled by default.
+You need to enable both the `4688` events as well as turn on command line option logging in order to use the majority of Sigma rules.
+
+#### Enabling with group policy
+
+* `Computer Configuration > Policies > Windows Settings > Security Settings > Advanced Audit Configuration > Detailed Tracking > Audit Process Creation`: Enabled
+* `Administrative Templates > System > Audit Process Creation > Include command line in process creation events`: Enabled
+
+#### Enabling on the command line
+
+```
+auditpol /set /subcategory:{0CCE922B-69AE-11D9-BED3-505054503030} /success:enable /failure:enable
+reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit /v ProcessCreationIncludeCmdLine_Enabled /f /t REG_DWORD /d 1
+```
+
+## Network connection
+
+* Category: `network_connection`
+* Sysmon
+  * Channel: `Microsoft-Windows-Sysmon/Operational`
+  * Event ID: `3`
+* Built-in log
+  * Channel: `Security`
+  * Event ID: `5156`
+  
+### Comparison:
+
+![Network Connection Comparison](images/network_connection_comparison.png)
+
+### Conversion notes:
+
+1. `ProcessId` field name changes to `ProcessID`.
+2. `Image` field name changes to `Application` and `C:\` changes to `\device\harddiskvolume?\`. (Note: since we do not know the hard disk volume number, we replace it with a single character wildcard `?`.)
+3. `Protocol` field value of `tcp` changes to `6` and `udp` changes to `17`.
+4. `Initiated` field name changes to `Direction` and the value of `true` changes to `%%14593` and `false` changes to `%%14592`.
+5. `SourceIp` field name changes to `SourceAddress`.
+6. `DestinationIp` field name changes to `DestAddress`.
+7. `DestinationPort` field name changes to `DestPort`.
+
+### Sigma rule writing:
+
+how many rules can be converted or not..
+
+## Registry events
+
+* Category: `network_connection`
+* Sysmon
+  * Channel: `Microsoft-Windows-Sysmon/Operational`
+  * Event ID: `3`
+* Built-in log
+  * Channel: `Security`
+  * Event ID: `5156`
 
 # Pre-converted Sigma rules
 
@@ -369,8 +512,8 @@ After executing the commands above, the rules converted to Hayabusa-compatible f
 
 # Authors
 
-This document was created by Zach Mathis (@yamatosecurity) and translated to Japanese by Fukusuke Takahashi.
+This document was created by Zach Mathis (@yamatosecurity) and translated to Japanese by Fukusuke Takahashi (@fukusuket).
 
-The research for the registry and network connection category differences as well as the `sigma-to-hayabusa-converter.py` tool implementation and maintenence is done by Fukusuke Takahashi.
+The `sigma-to-hayabusa-converter.py` tool implementation and maintenence is done by Fukusuke Takahashi.
 
 The original conversion tool that relied on the now-deprecated sigmac tool was implemented by ItiB (@itiB_S144) and James Takai / hachiyone(@hach1yon).
