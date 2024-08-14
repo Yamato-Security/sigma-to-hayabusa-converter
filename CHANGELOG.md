@@ -1,5 +1,9 @@
 # Changes
 
+## v2.16.0 [2024/08/15]
+
+- Convert Sigma v1 tag format (`_`) to v2 format (`-`) for `deprecated` and `unsupported` rules. (#18) (@fukusuket)
+
 ## v2.16.0 [2024/08/02]
 
 - Config files were consolidated and renamed. #11 (@fukusuket)
