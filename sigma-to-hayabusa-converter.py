@@ -374,6 +374,8 @@ class LogsourceConverter:
         elif ls.category == "antivirus":
             new_obj['logsource']["product"] = "windows"
             new_obj['logsource']["service"] = ls.service
+        if "tags" in new_obj and any('_' in tag for tag in new_obj["tags"]):
+            new_obj["tags"] = [tag.replace("_", "-") for tag in new_obj["tags"]]
         detection = copy.deepcopy(new_obj['detection'])
         new_obj['detection'] = dict()
         new_obj['detection'][ls.get_identifier_for_detection(list(detection.keys()))] = ls.get_detection()
