@@ -38,15 +38,16 @@
     - [Comparison:](#comparison)
     - [Conversion notes:](#conversion-notes)
     - [Other notes:](#other-notes)
-    - [Sigma rule writing](#sigma-rule-writing)
     - [Built-in log settings](#built-in-log-settings)
       - [Enabling with group policy](#enabling-with-group-policy)
       - [Enabling on the command line](#enabling-on-the-command-line)
   - [Network connection](#network-connection)
     - [Comparison:](#comparison-1)
     - [Conversion notes:](#conversion-notes-1)
-    - [Sigma rule writing:](#sigma-rule-writing-1)
-  - [Registry events](#registry-events)
+    - [Built-in log settings](#built-in-log-settings-1)
+      - [Enabling with group policy](#enabling-with-group-policy-1)
+      - [Enabling on the command line](#enabling-on-the-command-line-1)
+- [Sigma rule writing advice](#sigma-rule-writing-advice)
 - [Pre-converted Sigma rules](#pre-converted-sigma-rules)
 - [Tool Environment](#tool-environment)
 - [Tool usage](#tool-usage)
@@ -61,7 +62,10 @@ We hope this information may be useful for other projects that are trying to use
 
 # TLDR
 
-blah blah
+* Deabstracting the `logsource` field and creating new `.yml` rule files for built-in rules as well as the original Sysmon-based rules makes full built-in event support for Sigma rules easier and reading the rules easier for analysts.
+* When writing Sigma rules for Windows event logs, it is important to understand the differences between the original Sysmon-based logs and the compatible built-in logs and ideally write your rules so they are compatible with both.
+* Many organizations cannot or do not want to install and maintain Sysmon agents on all of their Windows endpoints because they do not have the dedicated resources to handle it or they want to avoid the risk of any slow downs or crashes caused by Sysmon. Because of this, it is important to enable as many built-in event logs as well as use tools that can handle detecting attacks in those built-in logs.
+
 
 # Challenges with upstream Sigma rules for Windows event logs
 
@@ -317,7 +321,9 @@ Before explaining in details on how we convert specific categories, we will expl
 
 4. Rules will syntax errors will not be converted.
 
-5. Since we are adding `Channel` and `EventID` information to rules, we create a new UUIDv4 ID by using the MD5 hash of the original ID and specify the original ID in the `related` field and mark the `type` as `derived`. For rules that can be converted to multiple rules (`sysmon` and `builtin`), we need to create new rule IDs for the derived `builtin` rules as well. In order to do this, we calculate a MD5 hash of the `sysmon` rule ID and use that for the UUIDv4 ID. Here is an example:
+5. Tags in `deprecated` and `unsupported` rules are updated from the V1 format to the V2 format which uses `-` instead of `_` in order keep everything consistant and handle abbreviations in Hayabusa easier. Example: `initial_access` becomes `initial-access`.
+
+6. Since we are adding `Channel` and `EventID` information to rules, we create a new UUIDv4 ID by using the MD5 hash of the original ID and specify the original ID in the `related` field and mark the `type` as `derived`. For rules that can be converted to multiple rules (`sysmon` and `builtin`), we need to create new rule IDs for the derived `builtin` rules as well. In order to do this, we calculate a MD5 hash of the `sysmon` rule ID and use that for the UUIDv4 ID. Here is an example:
 
     Original Sigma rule:
     ```
@@ -345,11 +351,11 @@ Before explaining in details on how we convert specific categories, we will expl
         type: derived
     ```
 
-6. Rules that detect things in built-in Windows event logs are outputted to the `builtin` directory while the rules that rely on Sysmon logs are outputted to the `sysmon` directory with the sub-directories matching the directories in the upstream Sigma repository.
+7. Rules that detect things in built-in Windows event logs are outputted to the `builtin` directory while the rules that rely on Sysmon logs are outputted to the `sysmon` directory with the sub-directories matching the directories in the upstream Sigma repository.
 
 # Conversion limitations
 
-There is only one bug at the moment in that comment lines in Sigma rules will not included in the outputted rules unless the comments follow some source code.
+There is only one [bug](https://github.com/Yamato-Security/sigma-to-hayabusa-converter/issues/2) at the moment in that comment lines in Sigma rules will not included in the outputted rules unless the comments follow some source code.
 
 # Sysmon and built-in event comparison and rule conversion
 
@@ -420,18 +426,6 @@ There is only one bug at the moment in that comment lines in Sigma rules will no
 * `TokenElevationType` is displayed as-is in the `Message` and not rendered.
 * `S-1-16-4096`, etc... inside `MandatoryLabel` gets converted to `Mandatory Label\Low Mandatory Level`, etc... in the rendered `Message`.
 
-### Sigma rule writing
-* Currently, <TODO> percent of `process_creation` rules cannot be converted to `builtin` rules because they rely on the following field names that do not exist in `Security 4688`:
-  * field1
-  * field2
-* If you use any field that exists in a `sysmon` log but not a `builtin` log then make sure you make that field optional so that it is still possible to use the rule for `builtin` logs. For example:
-  ```
-  selection_img:
-      - Image|endswith: \addinutil.exe
-      - OriginalFileName: AddInUtil.exe
-  ```
-  This seleciton is looking for when the process is named `addinutil.exe`. The problem is that an attacker could just rename the filename in order to bypass the rule. The `OriginalFileName` field that only exists in Sysmon logs is the filename that gets embedded into the binary at compile-time. Even if an attacker renames the file, the embedded name will not change so this rule can detect attacks where the attacker has renamed the file when using Sysmon, and also can be used to detect attacks where the filename was not changed with standard built-in logs.
-
 ### Built-in log settings
 
 Very unfortunately, the most important built-in `Security 4688` process creation event logs are not enabled by default.
@@ -439,8 +433,8 @@ You need to enable both the `4688` events as well as turn on command line option
 
 #### Enabling with group policy
 
-* `Computer Configuration > Policies > Windows Settings > Security Settings > Advanced Audit Configuration > Detailed Tracking > Audit Process Creation`: Enabled
-* `Administrative Templates > System > Audit Process Creation > Include command line in process creation events`: Enabled
+* `Computer Configuration > Policies > Windows Settings > Security Settings > Advanced Audit Configuration > Detailed Tracking > Audit Process Creation`: `Enabled`
+* `Administrative Templates > System > Audit Process Creation > Include command line in process creation events`: `Enabled`
 
 #### Enabling on the command line
 
@@ -473,19 +467,36 @@ reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit /v 
 6. `DestinationIp` field name changes to `DestAddress`.
 7. `DestinationPort` field name changes to `DestPort`.
 
-### Sigma rule writing:
+### Built-in log settings
 
-how many rules can be converted or not..
+Built-in `Security 5156` network connection logs are not enabled by default.
+This will create a large amount of logs which may overwrite other important logs in the `Security` event and potentially cause the system to slow down if it has a high amount of network connections so make sure that the maximum file size for the `Security` log is high and that you test to make sure there are no adverse effects to the system.
 
-## Registry events
+#### Enabling with group policy
 
-* Category: `network_connection`
-* Sysmon
-  * Channel: `Microsoft-Windows-Sysmon/Operational`
-  * Event ID: `3`
-* Built-in log
-  * Channel: `Security`
-  * Event ID: `5156`
+* `Computer Configuration -> Windows Settings -> Security Settings -> Advanced Audit Policy Configuration -> System Audit Policies -> Object Access -> Filtering Platform Connection`:  `Success and Failture`
+
+#### Enabling on the command line
+
+```
+auditpol /set /subcategory:"Filtering Platform Connection" /success:enable /failure:enable
+```
+
+or the following if you are using a non-English locale:
+
+```
+auditpol /set /subcategory:{0CCE922F-69AE-11D9-BED3-505054503030} /success:enable /failure:enable
+```
+
+# Sigma rule writing advice
+
+If you use any field that exists in a `sysmon` log but not a `builtin` log then make sure you make that field optional so that it is still possible to use the rule for `builtin` logs. For example:
+  ```
+  selection_img:
+      - Image|endswith: \addinutil.exe
+      - OriginalFileName: AddInUtil.exe
+  ```
+  This seleciton is looking for when the process (`Image`) is named `addinutil.exe`. The problem is that an attacker could just rename the filename in order to bypass the rule. The `OriginalFileName` field, that only exists in Sysmon logs, is the filename that gets embedded into the binary at compile-time. Even if an attacker renames the file, the embedded name will not change so this rule can detect attacks where the attacker has renamed the file when using Sysmon, and also can be used to detect attacks where the filename was not changed with standard built-in logs.
 
 # Pre-converted Sigma rules
 
@@ -498,7 +509,7 @@ https://python-poetry.org/docs/#installation
 
 # Tool usage
 
-`sigma-to-hayabusa-converter.py` is our main tool to convert the `logsource` field of Sigma rules to Hayabusa format.
+`sigma-to-hayabusa-converter.py` is our main tool to convert the `logsource` field of Sigma rules to Hayabusa-compatible format.
 Perform the following tasks to run it.
 
 
@@ -516,4 +527,4 @@ This document was created by Zach Mathis (@yamatosecurity) and translated to Jap
 
 The `sigma-to-hayabusa-converter.py` tool implementation and maintenence is done by Fukusuke Takahashi.
 
-The original conversion tool that relied on the now-deprecated sigmac tool was implemented by ItiB (@itiB_S144) and James Takai / hachiyone(@hach1yon).
+The original conversion tool that relied on the now-deprecated sigmac tool was implemented by ItiB ([@itiB_S144](https://x.com/itib_s144)) and James Takai / hachiyone(@hach1yon).
