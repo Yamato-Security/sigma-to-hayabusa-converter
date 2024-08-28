@@ -469,8 +469,8 @@ reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit /v 
 
 ### ビルトインのログ設定
 
-Built-in `Security 5156` network connection logs are not enabled by default.
-This will create a large amount of logs which may overwrite other important logs in the `Security` event and potentially cause the system to slow down if it has a high amount of network connections so make sure that the maximum file size for the `Security` log is high and that you test to make sure there are no adverse effects to the system.
+ビルトインの`Security 5156` ネットワーク接続ログはデフォルトでは有効になっていません。
+そのため、`Security` ログの最大ファイルサイズを大きくして、システムに悪影響がないことをテストしてください。
 
 #### グループポリシーで有効化
 
