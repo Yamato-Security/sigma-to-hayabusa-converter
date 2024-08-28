@@ -321,11 +321,11 @@ detection:
 
 4. 構文エラーを含むルールは変換されません。
 
-5. Tags in `deprecated` and `unsupported` rules are updated from the V1 format to the V2 format which uses `-` instead of `_` in order keep everything consistant and handle abbreviations in Hayabusa easier. Example: `initial_access` becomes `initial-access`.
+5. `deprecated`と`unsupported`ルールのタグをV1フォーマットからV2フォーマットに更新します。例: `initial_access` は `initial-access` になります。
 
-6. Since we are adding `Channel` and `EventID` information to rules, we create a new UUIDv4 ID by using the MD5 hash of the original ID and specify the original ID in the `related` field and mark the `type` as `derived`. For rules that can be converted to multiple rules (`sysmon` and `builtin`), we need to create new rule IDs for the derived `builtin` rules as well. In order to do this, we calculate a MD5 hash of the `sysmon` rule ID and use that for the UUIDv4 ID. Here is an example:
+6. ルールに `Channel` と `EventID` の情報を追加するので、元のIDのMD5ハッシュを使用して新しい UUIDv4 ID を作成し、`related` フィールドに元の ID を指定して `type` を `derived` とマークします。複数のルールに変換できるルール (`sysmon` と `builtin`) については、派生した `builtin` ルールにも新しいルール ID を作成する必要があります。これを行うには、`sysmon` ルールのIDのMD5 ハッシュを計算し、それを UUIDv4 IDに使用します。以下は例です：
 
-   元の Sigmaルール:
+    元の Sigmaルール:
     ```
     title: 7Zip Compressing Dump Files
     id: 1ac14d38-3dfc-4635-92c7-e3fd1c5f5bfc
