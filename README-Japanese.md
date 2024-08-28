@@ -16,8 +16,8 @@
 - [Windowsイベントログに関する上流のSigmaルールの課題](#Windowsイベントログに関する上流のSigmaルールの課題)
     - [`logsource`フィールド](#logsourceフィールド)
         - [`service`フィールド](#serviceフィールド)
-            - [単一`Channel`の例:](#単一Channelの例)
-            - [複数`Channel`の例:](#複数Channelの例)
+            - [単一`channel`の例:](#単一channelの例)
+            - [複数`channel`の例:](#複数channelの例)
             - [現在の`service`マッピングのリスト](#現在のserviceマッピングのリスト)
             - [Serviceマッピングのソース](#Serviceマッピングのソース)
         - [Categoryフィールド](#Categoryフィールド)
@@ -38,15 +38,16 @@
         - [比較:](#比較)
         - [変換の注意点:](#変換の注意点)
         - [そのほかの注意点:](#そのほかの注意点)
-        - [Sigmaルールライティング](#Sigmaルールライティング)
         - [ビルトインのログ設定](#ビルトインのログ設定)
             - [グループポリシーで有効化](#グループポリシーで有効化)
             - [コマンドラインで有効化](#コマンドラインで有効化)
     - [ネットワークコネクション](#ネットワークコネクション)
         - [比較:](#比較-1)
         - [変換の注意点:](#変換の注意点-1)
-        - [Sigmaルールライティング](#Sigmaルールライティング)
-    - [Registryイベント](#Registryイベント)
+        - [ビルトインのログ設定](#ビルトインのログ設定)
+            - [グループポリシーで有効化](#グループポリシーで有効化)
+            - [コマンドラインで有効化](#コマンドラインで有効化)
+- [Sigmaルール作成のアドバイス](#Sigmaルール作成のアドバイス)
 - [変換前のSigmaルール](#変換前のSigmaルール)
 - [実行環境](#実行環境)
 - [ツールの使い方](#ツールの使い方)
@@ -61,7 +62,10 @@
 
 # 要約
 
-blah blah
+* `logsource`フィールドを抽象化解除し、組み込みルールや元のSysmonベースのルールのために新しい`.yml`ルールファイルを作成することで、Sigmaルールの完全な組み込みイベントサポートが容易になり、アナリストにとってルールの読みやすさが向上します
+* WindowsイベントログのためにSigmaルールを書く際には、元のSysmonベースのログと互換性のある組み込みログの違いを理解し、理想的には両方に対応するようにルールを書くことが重要です
+* 多くの組織は、SysmonエージェントをすべてのWindowsエンドポイントにインストールし、維持するための専用リソースがない、またはSysmonによる遅延やクラッシュのリスクを避けたいという理由で、Sysmonエージェントを導入したくない、またはできません。そのため、できるだけ多くの組み込みイベントログを有効にし、それらの組み込みログで攻撃を検出できるツールを使用することが重要です
+
 
 # Windowsイベントログに関する上流のSigmaルールの課題
 
@@ -91,10 +95,10 @@ logsource:
 
 `service`フィールドは比較的扱いやすく、Sigmaルールを使用するバックエンドに対して、Windows XMLイベントログの`Channel`フィールドに基づいて、単一または複数のChannelを検索するよう指示します。
 
-#### 単一`Channel`の例:
+#### 単一`channel`の例:
 `service: application`は、selection条件 `Channel: Application` をSigmaルールに追加するのと同じです。
 
-#### 複数`Channel`の例:
+#### 複数`channel`の例:
 `service: applocker`は、複数のチャンネルを最も多く検索する条件を作成します。Applockerは情報を4つの異なるログに保存するためです。Applockerのログのみを適切に検索するためには、Sigmaルールのロジックに次の条件を追加する必要があります:
 ```
 Channel:
@@ -104,7 +108,7 @@ Channel:
     - Microsoft-Windows-AppLocker/Packaged app-Execution
 ``` 
 
-#### 現在の`service`マッピングのリスト
+#### 現在のserviceマッピングのリスト
 
 | Service                                 | Channel                                                                                               |
 |-----------------------------------------|-------------------------------------------------------------------------------------------------------|
@@ -170,7 +174,7 @@ process_creation:
     Channel: Microsoft-Windows-Sysmon/Operational
 ```
 
-#### 現在の`category`マッピングのリスト
+#### 現在のCategoryマッピングのリスト
 
 | Category                     | Service             | EventIDs                                        |
 |------------------------------|---------------------|-------------------------------------------------|
@@ -213,7 +217,7 @@ process_creation:
 | sysmon_status                | sysmon              | 4, 16                                           |
 | wmi_event                    | sysmon              | 19, 20, 21                                      |
 
-#### `Category`フィールドの課題
+#### Categoryフィールドの課題
 
 同じ`category`が複数のサービスやイベントIDを使用できることに気づいたかもしれません（**※太字で示しています**）。
 これは、ルールで使用されているフィールドがビルトインのイベントログにも存在する場合、`sysmon`用に設計されたSigmaルールを、同様のビルトインWindowsの`Security`イベントログで使用できる可能性があることを意味します。
@@ -317,9 +321,11 @@ detection:
 
 4. 構文エラーを含むルールは変換されません。
 
-5. ルールに`Channel`や`EventID`の情報を追加するため、元のIDのMD5ハッシュを使用して新しいUUIDv4 IDを作成し、`related`フィールドに元のIDを指定し、`type`を`derived`としてマークします。複数のルールに変換できるルール（`sysmon`および`builtin`）については、派生した`builtin`ルールにも新しいルールIDを作成する必要があります。これを行うために、`sysmon`ルールIDのMD5ハッシュを計算し、それをUUIDv4 IDとして使用します。以下はその例です
+5. `deprecated`と`unsupported`ルールのタグをV1フォーマットからV2フォーマットに更新します。例: `initial_access` は `initial-access` になります。
 
-   元の Sigmaルール:
+6. ルールに `Channel` と `EventID` の情報を追加するので、元のIDのMD5ハッシュを使用して新しい UUIDv4 ID を作成し、`related` フィールドに元の ID を指定して `type` を `derived` とマークします。複数のルールに変換できるルール (`sysmon` と `builtin`) については、派生した `builtin` ルールにも新しいルール ID を作成する必要があります。これを行うには、`sysmon` ルールのIDのMD5 ハッシュを計算し、それを UUIDv4 IDに使用します。以下は例です：
+
+    元の Sigmaルール:
     ```
     title: 7Zip Compressing Dump Files
     id: 1ac14d38-3dfc-4635-92c7-e3fd1c5f5bfc
@@ -345,11 +351,11 @@ detection:
         type: derived
     ```
 
-6. ビルトインのWindowsイベントログを検出するルールは`builtin`ディレクトリに出力され、Sysmonログに依存するルールは、上流のSigmaリポジトリ内のディレクトリ構造に対応するサブディレクトリを持つ`sysmon`ディレクトリに出力されます。
+7. ビルトインのWindowsイベントログを検出するルールは`builtin`ディレクトリに出力され、Sysmonログに依存するルールは、上流のSigmaリポジトリ内のディレクトリ構造に対応するサブディレクトリを持つ`sysmon`ディレクトリに出力されます。
 
 # 変換の制限
 
-現在のところ、唯一のバグは、Sigmaルールのコメント行が、ソースコードに続くコメントでない限り、出力されたルールに含まれないことです。
+現在のところ、唯一の[バグ](https://github.com/Yamato-Security/sigma-to-hayabusa-converter/issues/2)は、Sigmaルールのコメント行が、ソースコードに続くコメントでない限り、出力されたルールに含まれないことです。
 
 # Sysmonとビルトインイベントの比較およびルール変換
 
@@ -420,18 +426,6 @@ detection:
 * `TokenElevationType`は`Message`内でそのまま表示され、変換されません。
 * `MandatoryLabe`l内の`S-1-16-4096`などは、レンダリングされた`Message`内で`Mandatory Label\Low Mandatory` Levelなどに変換されます。
 
-### Sigmaルールライティング
-* Currently, <TODO> percent of `process_creation` rules cannot be converted to `builtin` rules because they rely on the following field names that do not exist in `Security 4688`:
-    * field1
-    * field2
-* `sysmon`ログに存在するが`builtin`ログには存在しないフィールドを使用する場合、そのフィールドをオプションに設定し、`builtin`ログでもそのルールを使用できるようにしてください。例えば、以下のようにします：  ```
-  ```  
-  selection_img:
-      - Image|endswith: \addinutil.exe
-      - OriginalFileName: AddInUtil.exe
-  ```
-  このselectionでは、プロセス名がaddinutil.exeである場合を探していますが、問題は、攻撃者がファイル名を変更することでルールを回避できる可能性があることです。OriginalFileNameフィールドはSysmonログにのみ存在し、コンパイル時にバイナリに埋め込まれるファイル名を示します。たとえ攻撃者がファイル名を変更しても、埋め込まれた名前は変わらないため、Sysmonを使用している場合、このルールは攻撃者がファイルをリネームした場合の攻撃を検出できます。また、標準の組み込みログでもファイル名が変更されていない攻撃を検出するために使用できます。
-  
 ### ビルトインのログ設定
 
 残念ながら、最も重要な組み込みの`Security 4688`プロセス作成イベントログはデフォルトでは有効になっていません。
@@ -439,8 +433,8 @@ Sigmaルールの大部分を使用するには、`4688`イベントを有効に
 
 #### グループポリシーで有効化
 
-* `Computer Configuration > Policies > Windows Settings > Security Settings > Advanced Audit Configuration > Detailed Tracking > Audit Process Creation`: 有効
-* `Administrative Templates > System > Audit Process Creation > Include command line in process creation events`: 有効
+* `Computer Configuration > Policies > Windows Settings > Security Settings > Advanced Audit Configuration > Detailed Tracking > Audit Process Creation`: `Enabled`
+* `Administrative Templates > System > Audit Process Creation > Include command line in process creation events`: `Enabled`
 
 #### コマンドラインで有効化
 
@@ -473,19 +467,36 @@ reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit /v 
 6. `DestinationIp` フィールドは `DestAddress` に変換される。
 7. `DestinationPort` フィールドは `DestPort` に変換される。
 
-### Sigmaルール writing:
+### ビルトインのログ設定
 
-how many rules can be converted or not..
+ビルトインの`Security 5156` ネットワーク接続ログはデフォルトでは有効になっていません。
+そのため、`Security` ログの最大ファイルサイズを大きくして、システムに悪影響がないことをテストしてください。
 
-## Registryイベント
+#### グループポリシーで有効化
 
-* Category: `network_connection`
-* Sysmon
-    * Channel: `Microsoft-Windows-Sysmon/Operational`
-    * Event ID: `3`
-* Built-in log
-    * Channel: `Security`
-    * Event ID: `5156`
+* `Computer Configuration -> Windows Settings -> Security Settings -> Advanced Audit Policy Configuration -> System Audit Policies -> Object Access -> Filtering Platform Connection`:  `Success and Failture`
+
+#### コマンドラインで有効化
+
+```
+auditpol /set /subcategory:"Filtering Platform Connection" /success:enable /failure:enable
+```
+
+英語以外のロケールを使用している場合は、以下のようになります：
+
+```
+auditpol /set /subcategory:{0CCE922F-69AE-11D9-BED3-505054503030} /success:enable /failure:enable
+```
+
+# Sigmaルール作成のアドバイス
+
+もし、`sysmon` ログには存在するが、`builtin` ログには存在しないフィールドを使用する場合は、`builtin` ログにルールを使用できるように、そのフィールドをオプションにしてください。例えば:
+  ```
+  selection_img:
+      - Image|endswith: \addinutil.exe
+      - OriginalFileName: AddInUtil.exe
+  ```
+  このselectionは、プロセス（`Image`）の名前が `addinutil.exe` であることを検出する。問題は、攻撃者がこのルールを回避するためにファイル名を変更することである。Sysmonのログにのみ存在する `OriginalFileName` フィールドは、コンパイル時にバイナリに埋め込まれるファイル名である。攻撃者がファイル名を変更しても、埋め込まれたファイル名は変更されないので、このルールはSysmonを使用する際に攻撃者がファイル名を変更した攻撃を検出することができます
 
 # 変換前のSigmaルール
 
@@ -498,7 +509,7 @@ https://python-poetry.org/docs/#installation
 
 # ツールの使い方
 
-`sigma-to-hayabusa-converter.py`は、Sigmaルールの`logsource`フィールドをHayabusa形式に変換するための主要なツールです。
+`sigma-to-hayabusa-converter.py`は、Sigmaルールの`logsource`フィールドをHayabus互換形式に変換するための主要なツールです。
 これを実行するには、以下の手順を実行してください。
 
 
@@ -516,4 +527,4 @@ https://python-poetry.org/docs/#installation
 
 `sigma-to-hayabusa-converter.py`ツールの実装とメンテナンスはFukusuke Takahashiが担当しています。
 
-現在deprecatedとなったsigmacツールベースの元の変換ツールは、ItiB (@itiB_S144)とJames Takai / hachiyone (@hach1yon)によって実装されました。
+現在deprecatedとなったsigmacツールベースの元の変換ツールは、ItiB ([@itiB_S144](https://x.com/itib_s144))とJames Takai / hachiyone (@hach1yon)によって実装されました。
