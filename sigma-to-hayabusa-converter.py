@@ -213,6 +213,8 @@ class LogSource:
             return True
         if self.category == "network_connection" and self.event_id == 5156:
             return True
+        if self.category == "wmi_event" and self.event_id == 5861:
+            return True
         return False
 
     def is_detectable_fields(self, keys, func) -> bool:
