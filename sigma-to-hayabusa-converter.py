@@ -378,7 +378,7 @@ class LogsourceConverter:
                 new_obj["detection"].get("condition") == "wmi_event and selection"
         ):
             del new_obj["detection"]["selection"]
-            new_obj["detection"]["condition"] = "wmi"
+            new_obj["detection"]["condition"] = "wmi_event"
 
     def convert_rule(self, obj: dict, ls: LogSource) -> dict | None:
         new_obj = assign_uuid_for_convert_rules(obj, str(ls))
