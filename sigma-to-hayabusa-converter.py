@@ -364,6 +364,20 @@ class LogsourceConverter:
             return []
         return logsources
 
+    def modify_wmi_detection(self, new_obj):
+        # title: WMI Event Subscription ルールのための変換処理
+        if (
+                "detection" in new_obj and
+                "selection" in new_obj["detection"] and
+                "EventID" in new_obj["detection"]["selection"] and
+                new_obj["detection"]["selection"]["EventID"] == [19, 20, 21] and
+                "logsource" in new_obj and
+                new_obj["logsource"].get("category") == "wmi_event" and
+                new_obj["detection"].get("condition") == "wmi_event and selection"
+        ):
+            del new_obj["detection"]["selection"]
+            new_obj["detection"]["condition"] = "wmi"
+
     def convert_rule(self, obj: dict, ls: LogSource) -> dict | None:
         new_obj = assign_uuid_for_convert_rules(obj, str(ls))
         if ls.service == "sysmon":
@@ -384,7 +398,8 @@ class LogsourceConverter:
             val = self.transform_field_recursive(ls.category, val, ls.need_field_conversion())
             new_obj['detection'][key] = val
         cond = str(new_obj['detection']['condition'])
-        if (cond.endswith("selection") or "selection and " in cond) and not ls.is_detectable(new_obj['detection'], True):
+        if (cond.endswith("selection") or "selection and " in cond) and not ls.is_detectable(new_obj['detection'],
+                                                                                             True):
             LOGGER.error(
                 f"Error while converting rule [{self.sigma_path}]: This rule has incompatible field: {new_obj['detection']}. Conversion skipped.")
             return None
@@ -395,6 +410,7 @@ class LogsourceConverter:
         field_map = self.field_map[ls.category] if ls.category in self.field_map else dict()
         new_obj['detection']['condition'] = ls.get_condition(new_obj['detection']['condition'],
                                                              list(detection.keys()), field_map)
+        self.modify_wmi_detection(new_obj)
         if ls.need_field_conversion() and "fields" in new_obj:
             fields = new_obj['fields']
             converted_fields = [field_map[f] for f in fields if f in field_map]
@@ -603,7 +619,7 @@ def find_windows_sigma_rule_files(root: str, rule_pattern: str):
             filepath = os.path.join(dirpath, filename)
             if not any(target in dirpath for target in ["rule", "deprecated", "unsupported"]):
                 continue  # フォルダパスにrule/deprecated/unsupportedがつかないものは、Sigmaルールと関係ないため、除外
-            if  any(target in dirpath for target in ["rules-placeholder"]):
+            if any(target in dirpath for target in ["rules-placeholder"]):
                 continue  # rules-placeholderはサポートしていないため、除外
             try:
                 with open(filepath, encoding="utf-8") as f:
@@ -656,18 +672,20 @@ if __name__ == '__main__':
     sysmon_map = create_category_map(create_obj(script_dir, 'sysmon-category-mapping.yaml')[0], service2channel)
     win_audit_map = create_category_map(create_obj(script_dir, 'builtin-category-mapping.yaml')[0], service2channel)
     win_service_map = create_category_map(create_obj(script_dir, 'services-mapping.yaml')[0], service2channel)
-    all_category_map = merge_category_map(service2channel,[sysmon_map, win_audit_map, win_service_map])
+    all_category_map = merge_category_map(service2channel, [sysmon_map, win_audit_map, win_service_map])
     process_creation_field_map = create_field_map("fieldmappings_process",
                                                   create_obj(script_dir, 'builtin-category-mapping.yaml')[0])
     registry_field_map = create_field_map("fieldmappings_registry", create_obj(script_dir,
                                                                                'builtin-category-mapping.yaml')[0])
     network_field_map = create_field_map("fieldmappings_network", create_obj(script_dir,
                                                                              'builtin-category-mapping.yaml')[0])
-    antivirus_field_map = create_field_map("fieldmappings_antivirus", create_obj(script_dir, 'builtin-category-mapping.yaml')[0])
+    antivirus_field_map = create_field_map("fieldmappings_antivirus",
+                                           create_obj(script_dir, 'builtin-category-mapping.yaml')[0])
+    wmi_field_map = create_field_map("fieldmappings_wmi", create_obj(script_dir, 'builtin-category-mapping.yaml')[0])
     field_map = {"process_creation": process_creation_field_map} | {"antivirus": antivirus_field_map} | {
         "registry_set": registry_field_map} | {"registry_add": registry_field_map} | {
                     "registry_event": registry_field_map} | {"registry_delete": registry_field_map} | {
-                    "network_connection": network_field_map}
+                    "network_connection": network_field_map} | {"wmi_event": wmi_field_map}
     LOGGER.info("Loading logsource mapping yaml(sysmon/windows-audit/windows-services) done.")
 
     # Sigmaディレクトリから対象ファイルをリストアップ
