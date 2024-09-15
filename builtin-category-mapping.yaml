@@ -100,4 +100,4 @@ fieldmappings_antivirus:
     Signature: ThreatName
     Filename: Path
 fieldmappings_wmi:
-    Destination: PossibleCause
+    Destination: UserDataPossibleCause
