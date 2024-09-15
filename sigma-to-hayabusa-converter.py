@@ -370,7 +370,9 @@ class LogsourceConverter:
             if "tags" not in new_obj:
                 new_obj["tags"] = ["sysmon"]
             elif "sysmon" not in new_obj["tags"]:
-                new_obj["tags"].append("sysmon")
+                tags = new_obj["tags"].copy()
+                tags.append("sysmon")
+                new_obj["tags"] = tags
         elif ls.category == "antivirus":
             new_obj['logsource']["product"] = "windows"
             new_obj['logsource']["service"] = ls.service
