@@ -1,5 +1,9 @@
 # Changes
 
+## v2.17.0 [2024/09/16]
+
+- Bug fix: Rules for built-in Windows event logs had the `sysmon` tag added to them by mistake. (#21) (@fukusuket)
+
 ## v2.16.0 [2024/08/15]
 
 - Convert Sigma v1 tag format (`_`) to v2 format (`-`) for `deprecated` and `unsupported` rules. (#18) (@fukusuket)
