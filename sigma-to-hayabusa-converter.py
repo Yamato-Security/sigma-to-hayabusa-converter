@@ -213,6 +213,8 @@ class LogSource:
             return True
         if self.category == "network_connection" and self.event_id == 5156:
             return True
+        if self.category == "wmi_event" and self.event_id == 5861:
+            return True
         return False
 
     def is_detectable_fields(self, keys, func) -> bool:
@@ -666,10 +668,13 @@ if __name__ == '__main__':
     network_field_map = create_field_map("fieldmappings_network", create_obj(script_dir,
                                                                              'builtin-category-mapping.yaml')[0])
     antivirus_field_map = create_field_map("fieldmappings_antivirus", create_obj(script_dir, 'builtin-category-mapping.yaml')[0])
+
+    wmi_field_map = create_field_map("fieldmappings_wmi", create_obj(script_dir, 'builtin-category-mapping.yaml')[0])
+
     field_map = {"process_creation": process_creation_field_map} | {"antivirus": antivirus_field_map} | {
         "registry_set": registry_field_map} | {"registry_add": registry_field_map} | {
                     "registry_event": registry_field_map} | {"registry_delete": registry_field_map} | {
-                    "network_connection": network_field_map}
+                    "network_connection": network_field_map} | {"wmi_event": wmi_field_map}
     LOGGER.info("Loading logsource mapping yaml(sysmon/windows-audit/windows-services) done.")
 
     # Sigmaディレクトリから対象ファイルをリストアップ

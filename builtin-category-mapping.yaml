@@ -48,7 +48,6 @@ logsources:
         rewrite:
             product: windows
             service: security
-
     antivirus:
         category: antivirus
         conditions:
@@ -68,6 +67,14 @@ logsources:
         rewrite:
             product: windows
             service: windefend
+    wmi_event:
+        category: wmi_event
+        product: windows
+        conditions:
+            EventID: 5861
+        rewrite:
+            product: windows
+            service: wmi
 fieldmappings_process:
     Image: NewProcessName
     ProcessId: NewProcessId
@@ -92,3 +99,5 @@ fieldmappings_network:
 fieldmappings_antivirus:
     Signature: ThreatName
     Filename: Path
+fieldmappings_wmi:
+    Destination: UserDataPossibleCause
