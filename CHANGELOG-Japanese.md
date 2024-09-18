@@ -1,5 +1,16 @@
 # 変更点
 
+## v2.17.0 [2024/09/18]
+
+- ビルトインのWMIイベント変換に対応した。 (#12) (@fukusuket)
+  - これで、`wmi_event`のカテゴリーを持つSigmaルールは、以下のように変換される:
+    - 次の条件が追加される。
+    ```
+    EventID: 5861
+    Channel: Microsoft-Windows-WMI-Activity/Operational
+    ```
+    - `Destination`のフィールドは、`UserDataPossibleCause`に名前変更される。
+
 ## v2.17.0 [2024/09/16]
 
 - バグ修正: Windowsのビルトインイベントログのルールに、誤って`sysmon`タグが追加されていた。(#21) (@fukusuket)

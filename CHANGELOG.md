@@ -1,5 +1,16 @@
 # Changes
 
+## v2.17.0 [2024/09/18]
+
+- Support for built-in WMI event converstion. (#12) (@fukusuket)
+  - Now, sigma rules with a category of `wmi_event` will have the following conversion take place:
+    - The following condition is added
+    ```
+    EventID: 5861
+    Channel: Microsoft-Windows-WMI-Activity/Operational
+    ```
+    - The field `Destination` will be renamed to `UserDataPossibleCause`.
+
 ## v2.17.0 [2024/09/16]
 
 - Bug fix: Rules for built-in Windows event logs had the `sysmon` tag added to them by mistake. (#21) (@fukusuket)
