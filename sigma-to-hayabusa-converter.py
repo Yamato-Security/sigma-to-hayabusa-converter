@@ -155,6 +155,20 @@ def referenced_rule_is_uuid(obj: dict) -> bool:
     except ValueError:
         return False
 
+def contains_fieldref_key(obj):
+    if isinstance(obj, dict):
+        for key, value in obj.copy().items():
+            if 'fieldref' in key:
+                obj.pop(key)
+                obj[key.replace('fieldref', 'equalsfield')] = value
+                return True
+            if contains_fieldref_key(value):
+                return True
+    elif isinstance(obj, list):
+        for item in obj:
+            if contains_fieldref_key(item):
+                return True
+    return False
 
 @dataclass(frozen=True)
 class LogSource:
@@ -349,7 +363,7 @@ class LogsourceConverter:
         keys = get_terminal_keys_recursive(obj["detection"], [])
         modifiers = {re.sub(r".*\|", "", k) for k in keys if "|" in k}
         convertible = ["all", "base64", "base64offset", "cidr", "contains", "endswith", "endswithfield", "equalsfield",
-                       "re", "startswith", "windash"]
+                       "re", "startswith", "windash", "fieldref"]
         if modifiers and [m for m in modifiers if m not in convertible]:
             LOGGER.error(f"This rule has incompatible field: {obj['detection']}. Conversion skipped.")
             return []
@@ -418,6 +432,7 @@ class LogsourceConverter:
                 return  # ログソースマッピングにないcategory/serviceのため、変換処理はスキップ
             for ls in logsources:
                 new_obj = self.convert_rule(obj_list[0], ls)
+                contains_fieldref_key(new_obj)
                 if not new_obj:
                     return
                 if ls.service == "sysmon":

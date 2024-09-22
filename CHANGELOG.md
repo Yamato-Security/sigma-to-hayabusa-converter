@@ -1,5 +1,9 @@
 # Changes
 
+## v2.17.0 [2024/09/22]
+
+- `|fieldref` modifier names are temporarily renamed to `equalsfield` in order to be used by the current versions of Hayabusa. (#24) (@fukusuket)
+
 ## v2.17.0 [2024/09/18]
 
 - Support for built-in WMI event converstion. (#12) (@fukusuket)
