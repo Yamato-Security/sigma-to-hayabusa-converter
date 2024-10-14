@@ -1,5 +1,9 @@
 # Changes
 
+## v2.17.0 [2024/10/15]
+
+- Fixed a bug where correlation rules would not get converted correctly. (#28) (@fukusuket)
+
 ## v2.17.0 [2024/09/22]
 
 - `|fieldref` modifier names are temporarily renamed to `equalsfield` in order to be used by the current versions of Hayabusa. (#24) (@fukusuket)
