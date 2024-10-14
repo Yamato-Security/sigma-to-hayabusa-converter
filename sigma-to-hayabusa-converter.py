@@ -375,7 +375,8 @@ class LogsourceConverter:
         logsources = self.get_logsources(obj)
         if not logsources:
             new_obj = copy.deepcopy(obj)
-            new_obj['ruletype'] = 'Sigma'
+            if "ruleType" not in new_obj:
+                new_obj['ruletype'] = 'Sigma'
             self.sigma_converted.append((False, new_obj))
             return []
         return logsources
@@ -418,7 +419,8 @@ class LogsourceConverter:
             converted_fields = [field_map[f] for f in fields if f in field_map]
             not_converted_fields = [f for f in fields if f not in field_map]
             new_obj['fields'] = converted_fields + not_converted_fields
-        new_obj['ruletype'] = 'Sigma'
+        if "ruletype" not in new_obj:
+            new_obj['ruletype'] = 'Sigma'
         return new_obj
 
     def convert(self):
