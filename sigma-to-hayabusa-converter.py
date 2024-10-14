@@ -442,7 +442,8 @@ class LogsourceConverter:
         else:
             # correlationルールかつ複数YAMLの場合の変換
             correlation = obj_list.pop(0)
-            correlation['ruleType'] = "Sigma"
+            if "ruletype" not in correlation:
+                correlation['ruletype'] = "Sigma"
             sysmon_converted = [correlation]
             builtin_converted = [correlation]
             sysmon_uuid_list = []
