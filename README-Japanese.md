@@ -310,13 +310,24 @@ detection:
     * all
     * base64
     * base64offset
+    * case
     * cidr
     * contains
     * endswith
     * endswithfield
     * equalsfield
+    * exists
+    * fieldref
+    * gt
+    * gte
+    * lt
+    * lte
     * re
     * startswith
+    * utf16
+    * utf16be
+    * utf16le
+    * wide
     * windash
 
 4. 構文エラーを含むルールは変換されません。
