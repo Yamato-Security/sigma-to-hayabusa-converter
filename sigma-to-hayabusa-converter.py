@@ -362,8 +362,8 @@ class LogsourceConverter:
             return []
         keys = get_terminal_keys_recursive(obj["detection"], [])
         modifiers = {re.sub(r".*\|", "", k) for k in keys if "|" in k}
-        convertible = ["all", "base64", "base64offset", "cidr", "contains", "endswith", "endswithfield", "equalsfield",
-                       "re", "startswith", "windash", "fieldref"]
+        convertible = ["all", "base64", "base64offset", "cidr", "contains", "endswith", "endswithfield", "equalsfield", "cased", "exists",
+                       "re", "i", "m", "s", "startswith", "windash", "fieldref", "gt", "gte", "lt", "lte", "utf16", "utf16be", "utf16le", "wide"]
         if modifiers and [m for m in modifiers if m not in convertible]:
             LOGGER.error(f"This rule has incompatible field: {obj['detection']}. Conversion skipped.")
             return []

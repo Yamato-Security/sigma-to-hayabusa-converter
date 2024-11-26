@@ -310,13 +310,24 @@ Before explaining in details on how we convert specific categories, we will expl
     * all
     * base64
     * base64offset
+    * cased
     * cidr
     * contains
     * endswith
     * endswithfield
     * equalsfield
+    * exists
+    * fieldref
+    * gt
+    * gte
+    * lt
+    * lte
     * re
     * startswith
+    * utf16
+    * utf16be
+    * utf16le
+    * wide
     * windash
 
 4. Rules will syntax errors will not be converted.
