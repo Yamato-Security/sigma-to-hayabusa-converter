@@ -310,7 +310,7 @@ detection:
     * all
     * base64
     * base64offset
-    * case
+    * cased
     * cidr
     * contains
     * endswith

@@ -310,7 +310,7 @@ Before explaining in details on how we convert specific categories, we will expl
     * all
     * base64
     * base64offset
-    * case
+    * cased
     * cidr
     * contains
     * endswith
