@@ -155,20 +155,6 @@ def referenced_rule_is_uuid(obj: dict) -> bool:
     except ValueError:
         return False
 
-def contains_fieldref_key(obj):
-    if isinstance(obj, dict):
-        for key, value in obj.copy().items():
-            if 'fieldref' in key:
-                obj.pop(key)
-                obj[key.replace('fieldref', 'equalsfield')] = value
-                return True
-            if contains_fieldref_key(value):
-                return True
-    elif isinstance(obj, list):
-        for item in obj:
-            if contains_fieldref_key(item):
-                return True
-    return False
 
 @dataclass(frozen=True)
 class LogSource:
@@ -434,7 +420,6 @@ class LogsourceConverter:
                 return  # ログソースマッピングにないcategory/serviceのため、変換処理はスキップ
             for ls in logsources:
                 new_obj = self.convert_rule(obj_list[0], ls)
-                contains_fieldref_key(new_obj)
                 if not new_obj:
                     return
                 if ls.service == "sysmon":
