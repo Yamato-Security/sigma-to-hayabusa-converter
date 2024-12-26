@@ -510,6 +510,7 @@ def build_out_path(base_dir: str, out_dir: str, sigma_path: str, sysmon: bool) -
     new_path = new_path.replace('/rules-dfir', '/dfir')
     new_path = new_path.replace('/rules-emerging-threats', '/emerging-threats')
     new_path = new_path.replace('/rules-threat-hunting', '/threat-hunting')
+    new_path = new_path.replace('/rules-placeholder', '/placeholder')
     new_path = new_path.replace('/rules', '')
     if sysmon:
         return out_dir + '/sysmon' + new_path
@@ -610,8 +611,6 @@ def find_windows_sigma_rule_files(root: str, rule_pattern: str):
             filepath = os.path.join(dirpath, filename)
             if not any(target in dirpath for target in ["rule", "deprecated", "unsupported"]):
                 continue  # フォルダパスにrule/deprecated/unsupportedがつかないものは、Sigmaルールと関係ないため、除外
-            if  any(target in dirpath for target in ["rules-placeholder"]):
-                continue  # rules-placeholderはサポートしていないため、除外
             try:
                 with open(filepath, encoding="utf-8") as f:
                     yaml = ruamel.yaml.YAML()
