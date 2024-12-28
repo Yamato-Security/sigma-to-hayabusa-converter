@@ -155,20 +155,6 @@ def referenced_rule_is_uuid(obj: dict) -> bool:
     except ValueError:
         return False
 
-def contains_fieldref_key(obj):
-    if isinstance(obj, dict):
-        for key, value in obj.copy().items():
-            if 'fieldref' in key:
-                obj.pop(key)
-                obj[key.replace('fieldref', 'equalsfield')] = value
-                return True
-            if contains_fieldref_key(value):
-                return True
-    elif isinstance(obj, list):
-        for item in obj:
-            if contains_fieldref_key(item):
-                return True
-    return False
 
 @dataclass(frozen=True)
 class LogSource:
@@ -362,7 +348,7 @@ class LogsourceConverter:
             return []
         keys = get_terminal_keys_recursive(obj["detection"], [])
         modifiers = {re.sub(r".*\|", "", k) for k in keys if "|" in k}
-        convertible = ["all", "base64", "base64offset", "cidr", "contains", "endswith", "endswithfield", "equalsfield", "cased", "exists",
+        convertible = ["all", "base64", "base64offset", "cidr", "contains", "endswith", "endswithfield", "equalsfield", "cased", "exists", "expand",
                        "re", "i", "m", "s", "startswith", "windash", "fieldref", "gt", "gte", "lt", "lte", "utf16", "utf16be", "utf16le", "wide"]
         if modifiers and [m for m in modifiers if m not in convertible]:
             LOGGER.error(f"This rule has incompatible field: {obj['detection']}. Conversion skipped.")
@@ -434,7 +420,6 @@ class LogsourceConverter:
                 return  # ログソースマッピングにないcategory/serviceのため、変換処理はスキップ
             for ls in logsources:
                 new_obj = self.convert_rule(obj_list[0], ls)
-                contains_fieldref_key(new_obj)
                 if not new_obj:
                     return
                 if ls.service == "sysmon":
@@ -525,6 +510,7 @@ def build_out_path(base_dir: str, out_dir: str, sigma_path: str, sysmon: bool) -
     new_path = new_path.replace('/rules-dfir', '/dfir')
     new_path = new_path.replace('/rules-emerging-threats', '/emerging-threats')
     new_path = new_path.replace('/rules-threat-hunting', '/threat-hunting')
+    new_path = new_path.replace('/rules-placeholder', '/placeholder')
     new_path = new_path.replace('/rules', '')
     if sysmon:
         return out_dir + '/sysmon' + new_path
@@ -625,8 +611,6 @@ def find_windows_sigma_rule_files(root: str, rule_pattern: str):
             filepath = os.path.join(dirpath, filename)
             if not any(target in dirpath for target in ["rule", "deprecated", "unsupported"]):
                 continue  # フォルダパスにrule/deprecated/unsupportedがつかないものは、Sigmaルールと関係ないため、除外
-            if  any(target in dirpath for target in ["rules-placeholder"]):
-                continue  # rules-placeholderはサポートしていないため、除外
             try:
                 with open(filepath, encoding="utf-8") as f:
                     yaml = ruamel.yaml.YAML()
