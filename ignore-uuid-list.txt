@@ -4,4 +4,3 @@
 #30edb182-aa75-42c0-b0a9-e998bb29067c # Potential AMSI Bypass Via .NET Reflection
 
 0f06a3a5-6a09-413f-8743-e6cf35561297 # Looks for any Sysmon WMI event but is better handled with Hayabusa rules.
-7477881c-ec3b-49d6-aced-7255944e5c59 # Workaround for https://github.com/Yamato-Security/hayabusa/issues/1677
