@@ -1,5 +1,6 @@
 import argparse
 import copy
+import datetime
 import fnmatch
 import hashlib
 import logging
@@ -142,7 +143,8 @@ def assign_uuid_for_convert_rules(obj: dict, logsource_hash: str) -> dict:
                 new_obj["related"] = related
         elif k != "related":
             if k in ("date", "modified"):
-                new_obj[k] = str(v).replace("/", "-")
+                date_obj = datetime.datetime.strptime(str(v).replace("/", "-"), "%Y-%m-%d").date()
+                new_obj[k] = date_obj
             else:
                 new_obj[k] = v  # idの次の行に挿入するためすべて代入しなおす
     return new_obj
