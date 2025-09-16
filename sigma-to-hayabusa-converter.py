@@ -141,7 +141,7 @@ def assign_uuid_for_convert_rules(obj: dict, logsource_hash: str) -> dict:
                     related.append({"id": original_uuid, "type": "derived"})
                 new_obj["related"] = related
         elif k != "related":
-            if k == "date" or k == "modified":
+            if k in ("date", "modified"):
                 new_obj[k] = str(v).replace("/", "-")
             else:
                 new_obj[k] = v  # idの次の行に挿入するためすべて代入しなおす
