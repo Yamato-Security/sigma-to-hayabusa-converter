@@ -143,8 +143,12 @@ def assign_uuid_for_convert_rules(obj: dict, logsource_hash: str) -> dict:
                 new_obj["related"] = related
         elif k != "related":
             if k in ("date", "modified"):
-                date_obj = datetime.datetime.strptime(str(v).replace("/", "-"), "%Y-%m-%d").date()
-                new_obj[k] = date_obj
+                try:
+                    date_obj = datetime.datetime.strptime(str(v).replace("/", "-"), "%Y-%m-%d").date()
+                    new_obj[k] = date_obj
+                except ValueError:
+                    logging.warning(f"Failed to parse date for key '{k}': {v}. Keeping original value.")
+                    new_obj[k] = v
             else:
                 new_obj[k] = v  # idの次の行に挿入するためすべて代入しなおす
     return new_obj
