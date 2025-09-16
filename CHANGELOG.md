@@ -1,5 +1,9 @@
 # Changes
 
+## v3.5.0 [2025/09/16]
+
+- We now convert all rule modified and creation dates to the `yyyy-MM-dd` format to make parsing easier. (hayabusa-rules (#915)) (@fukusuket)
+
 ## v2.17.0 [2024/10/15]
 
 - Fixed a bug where correlation rules would not get converted correctly. (#28) (@fukusuket)
