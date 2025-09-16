@@ -120,6 +120,14 @@ def convert_special_val(key: str, value: str | list[str]) -> str | list[str]:
     return value
 
 
+def convert_date_format(obj: dict) -> dict:
+    date_fields = ["date", "modified"]
+    for field in date_fields:
+        if field in obj and isinstance(obj[field], str):
+            if re.match(r'^\d{4}/\d{2}/\d{2}$', obj[field]):
+                obj[field] = obj[field].replace('/', '-')
+    return obj
+
 def assign_uuid_for_convert_rules(obj: dict, logsource_hash: str) -> dict:
     if "id" not in obj:
         return dict(obj)
@@ -141,7 +149,10 @@ def assign_uuid_for_convert_rules(obj: dict, logsource_hash: str) -> dict:
                     related.append({"id": original_uuid, "type": "derived"})
                 new_obj["related"] = related
         elif k != "related":
-            new_obj[k] = v  # idの次の行に挿入するためすべて代入しなおす
+            if k == "date" or k == "modified":
+                new_obj[k] = str(v).replace("/", "-")
+            else:
+                new_obj[k] = v  # idの次の行に挿入するためすべて代入しなおす
     return new_obj
 
 
