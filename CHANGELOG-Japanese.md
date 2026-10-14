@@ -4,6 +4,7 @@
 
 - バグ修正: `services-mapping.yaml`の`dns-client`サービスが、登録されているチャンネル名`Microsoft-Windows-DNS-Client/Operational`ではなく、イベントビューアーの表示名`Microsoft-Windows-DNS Client Events/Operational`にマッピングされていた。そのため、変換後のDNSクライアントルールが一致せず、Hayabusaのチャンネルフィルターもスキャン前にログを除外していた。(#49) (@YamatoSecurity)
 - バグ修正: ユニットテスト(`test_sigma-to-hayabusa-converter.py`)が実行できなかった。存在しない`logsource_mapping`モジュールをインポートし、`create_obj()`の戻り値をインデックスせずに渡していたためである。ハイフンを含む変換スクリプトをインポートできるよう`logsource_mapping`モジュールのエイリアスを追加し、テストの呼び出しを修正し、古くなった件数のアサーションを更新し、コミットされていた古い`.pyc`を削除し、`__pycache__/`を追跡対象から除外した。また、プッシュおよびプルリクエストごとにテストを実行するGitHub Actionsワークフローを追加した。(#52) (#53) (@YamatoSecurity)
+- バグ修正: `registry_event`ルールのselectionにSysmonのイベントID(例: `EventID: [12,13]`)がハードコードされている場合、コンバーターがselectionとマッピング後のSecurityの`EventID: 4657`をANDするため、絶対に一致しないbuilt-inルールが生成されていた。変換先のマッピング後の`EventID`と一致し得ないSysmon専用の`EventID`を削除するようにし、Security変換が機能するようにした(Sysmon変換は変更なし)。(#50) (@YamatoSecurity)
 
 ## v3.5.0 [2025/09/16]
 

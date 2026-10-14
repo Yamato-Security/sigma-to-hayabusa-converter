@@ -127,3 +127,45 @@ class TestLogSourceMapper(TestCase):
         inp = {"title": "X", "id": original_uuid, "related": [{"id": "a", "type": "similar"}]}
         res = assign_uuid_for_convert_rules(inp, "abc")
         self.assertEqual(res, {"title":"X", "id": "04428db4-0588-7e14-0c46-c99384f8fc4c", "related": [{'id': 'a', 'type': 'similar'}, {"id": original_uuid, "type": "derived"}]})
+    def _registry_event_logsources(self):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        service2channel = create_service_map(create_obj(script_dir, "services-mapping.yaml")[0])
+        sysmon_map = create_category_map(create_obj(script_dir, 'sysmon-category-mapping.yaml')[0], service2channel)
+        win_audit_map = create_category_map(create_obj(script_dir, 'builtin-category-mapping.yaml')[0], service2channel)
+        all_category_map = merge_category_map(service2channel, [sysmon_map, win_audit_map])
+        registry_field_map = create_field_map("fieldmappings_registry", create_obj(script_dir, 'builtin-category-mapping.yaml')[0])
+        field_map = {"registry_event": registry_field_map}
+        return all_category_map["registry_event"], field_map
+
+    def _azorult_rule(self):
+        return {
+            "title": "Registry Entries For Azorult Malware",
+            "id": "f7f9ab88-7557-4a69-b30e-0a8f91b3a0e7",
+            "logsource": {"product": "windows", "category": "registry_event"},
+            "detection": {
+                "selection": {
+                    "EventID": [12, 13],
+                    "TargetObject|contains": "SYSTEM\\",
+                    "TargetObject|endswith": "\\services\\localNETService",
+                },
+                "condition": "selection",
+            },
+        }
+
+    def test_registry_event_drops_incompatible_eventid_for_security(self):
+        # A registry_event rule that hardcodes the Sysmon IDs 12/13 must not AND
+        # them with the Security-log EventID 4657 (that can never match). The
+        # Sysmon-only EventID should be dropped so the Security rule is usable,
+        # while the Sysmon conversion keeps the overlapping EventID.
+        logsources, field_map = self._registry_event_logsources()
+        for ls in logsources:
+            lc = LogsourceConverter("azorult.yml", {}, field_map)
+            converted = lc.convert_rule(self._azorult_rule(), ls)
+            if ls.event_id == 4657:  # Security
+                self.assertIsNotNone(converted)
+                self.assertNotIn("EventID", converted["detection"]["selection"])
+                self.assertEqual(converted["detection"]["registry_event"]["EventID"], 4657)
+                self.assertIn("ObjectName|contains", converted["detection"]["selection"])
+            else:  # Sysmon (12/13/14) overlaps 12/13, so it is kept
+                self.assertIsNotNone(converted)
+                self.assertEqual(converted["detection"]["selection"]["EventID"], [12, 13])
