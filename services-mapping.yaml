@@ -222,7 +222,7 @@ logsources:
         product: windows
         service: dns-client
         conditions:
-            Channel: 'Microsoft-Windows-DNS Client Events/Operational'
+            Channel: 'Microsoft-Windows-DNS-Client/Operational'
     windows-dns-server-analytic:
         product: windows
         service: dns-server-analytic

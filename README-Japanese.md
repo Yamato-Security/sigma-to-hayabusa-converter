@@ -123,7 +123,7 @@ Channel:
 | codeintegrity-operational               | Microsoft-Windows-CodeIntegrity/Operational                                                           |
 | diagnosis-scripted                      | Microsoft-Windows-Diagnosis-Scripted/Operational                                                      |
 | dhcp                                    | Microsoft-Windows-DHCP-Server/Operational                                                             |
-| dns-client                              | Microsoft-Windows-DNS Client Events/Operational                                                       |
+| dns-client                              | Microsoft-Windows-DNS-Client/Operational                                                              |
 | dns-server                              | DNS Server                                                                                            |
 | dns-server-analytic                     | Microsoft-Windows-DNS-Server/Analytical                                                               |
 | driver-framework                        | Microsoft-Windows-DriverFrameworks-UserMode/Operational                                               |

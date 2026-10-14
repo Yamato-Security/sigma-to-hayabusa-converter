@@ -1,5 +1,9 @@
 # 変更点
 
+## v3.5.0 [2026/10/14]
+
+- バグ修正: `services-mapping.yaml`の`dns-client`サービスが、登録されているチャンネル名`Microsoft-Windows-DNS-Client/Operational`ではなく、イベントビューアーの表示名`Microsoft-Windows-DNS Client Events/Operational`にマッピングされていた。そのため、変換後のDNSクライアントルールが一致せず、Hayabusaのチャンネルフィルターもスキャン前にログを除外していた。(#49) (@YamatoSecurity)
+
 ## v3.5.0 [2025/09/16]
 
 - ルール更新日および作成日をすべてパースしやすい`yyyy-MM-dd`形式に変換する。 (hayabusa-rules (#915)) (@fukusuket)
