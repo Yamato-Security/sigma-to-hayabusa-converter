@@ -1,5 +1,9 @@
 # Changes
 
+## v3.5.0 [2026/10/14]
+
+- Bug fix: the `dns-client` service in `services-mapping.yaml` mapped to the Event Viewer display name `Microsoft-Windows-DNS Client Events/Operational` instead of the registered channel name `Microsoft-Windows-DNS-Client/Operational`, so none of the converted DNS Client rules matched. Hayabusa compares the `Channel` field exactly, and its channel filter also dropped the log before scanning. (#49) (@YamatoSecurity)
+
 ## v3.5.0 [2025/09/16]
 
 - We now convert all rule modified and creation dates to the `yyyy-MM-dd` format to make parsing easier. (hayabusa-rules (#915)) (@fukusuket)
