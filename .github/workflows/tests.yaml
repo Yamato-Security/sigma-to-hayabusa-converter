@@ -1,0 +1,36 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Install dependencies
+        # --no-root: the repository is a script collection, not an installable package.
+        run: poetry install --no-root
+
+      - name: Install pytest
+        # pytest is the only runner that can import the hyphen-named test file; it is
+        # not a project dependency, so add it to the Poetry environment just for CI.
+        run: poetry run pip install pytest
+
+      - name: Run unit tests
+        run: poetry run pytest test_sigma-to-hayabusa-converter.py -v

@@ -17,3 +17,5 @@ hayabusa*
 !contributors.txt
 !LICENSE.txt
 .~*
+__pycache__/
+*.pyc
