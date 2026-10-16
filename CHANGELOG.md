@@ -4,6 +4,7 @@
 
 - Bug fix: the `dns-client` service in `services-mapping.yaml` mapped to the Event Viewer display name `Microsoft-Windows-DNS Client Events/Operational` instead of the registered channel name `Microsoft-Windows-DNS-Client/Operational`, so none of the converted DNS Client rules matched. Hayabusa compares the `Channel` field exactly, and its channel filter also dropped the log before scanning. (#49) (@YamatoSecurity)
 - Bug fix: the unit tests (`test_sigma-to-hayabusa-converter.py`) could not run — they imported a nonexistent `logsource_mapping` module and passed un-indexed `create_obj()` results. Added an importable `logsource_mapping` module alias for the hyphen-named converter, corrected the test calls, updated a stale count assertion, removed a stale committed `.pyc`, and stopped tracking `__pycache__/`. Also added a GitHub Actions workflow that runs the tests on every push and pull request. (#52) (#53) (@YamatoSecurity)
+- Bug fix: a `registry_event` rule that hardcodes the Sysmon event IDs (e.g. `EventID: [12,13]`) in its selection produced an impossible built-in rule, because the converter ANDs the selection with the mapped Security `EventID: 4657`. The converter now drops such a Sysmon-only `EventID` when it cannot match the target's mapped `EventID`, so the Security conversion is usable (the Sysmon conversion is unchanged). (#50) (@YamatoSecurity)
 
 ## v3.5.0 [2025/09/16]
 

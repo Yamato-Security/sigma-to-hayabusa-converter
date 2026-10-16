@@ -154,6 +154,19 @@ def assign_uuid_for_convert_rules(obj: dict, logsource_hash: str) -> dict:
     return new_obj
 
 
+def eventid_set(value) -> set[str]:
+    """
+    EventIDの値(int/str/listのいずれか)を文字列のsetに正規化する
+    """
+    if value is None:
+        return set()
+    if isinstance(value, (int, str)):
+        return {str(value)}
+    if isinstance(value, list):
+        return {str(v) for v in value}
+    return set()
+
+
 def referenced_rule_is_uuid(obj: dict) -> bool:
     if not ("correlation" in obj and "rules" in obj["correlation"]):
         return False
@@ -392,11 +405,33 @@ class LogsourceConverter:
             new_obj["tags"] = [tag.replace("_", "-") for tag in new_obj["tags"]]
         detection = copy.deepcopy(new_obj['detection'])
         new_obj['detection'] = dict()
-        new_obj['detection'][ls.get_identifier_for_detection(list(detection.keys()))] = ls.get_detection()
+        injected_key = ls.get_identifier_for_detection(list(detection.keys()))
+        new_obj['detection'][injected_key] = ls.get_detection()
         for key, val in detection.items():
             key = re.sub(r"\.", "_", key)
             val = self.transform_field_recursive(ls.category, val, ls.need_field_conversion())
             new_obj['detection'][key] = val
+        # A category rule can hardcode its source's event IDs (e.g. the Sysmon
+        # registry IDs 12/13) directly in a selection. When converting to a
+        # target whose mapped EventID differs (e.g. Security 4657), ANDing those
+        # with the injected EventID can never match. Drop such a disjoint EventID
+        # so the converted rule stays usable; if that empties the selection, the
+        # rule is not convertible for this target, so skip it.
+        mapped_eids = eventid_set(ls.event_id)
+        if mapped_eids:
+            for key, val in new_obj['detection'].items():
+                if key in (injected_key, "condition", "timeframe"):
+                    continue
+                for block in (val if isinstance(val, list) else [val]):
+                    if not (isinstance(block, dict) and "EventID" in block):
+                        continue
+                    sel_eids = eventid_set(block["EventID"])
+                    if sel_eids and not (sel_eids & mapped_eids):
+                        del block["EventID"]
+                        if not block:
+                            LOGGER.error(
+                                f"Error while converting rule [{self.sigma_path}]: selection [{key}] only constrains EventID(s) {sorted(sel_eids)} that cannot match the mapped EventID(s) {sorted(mapped_eids)}. Conversion skipped.")
+                            return None
         cond = str(new_obj['detection']['condition'])
         if (cond.endswith("selection") or "selection and " in cond) and not ls.is_detectable(new_obj['detection'], True):
             LOGGER.error(
