@@ -1,5 +1,9 @@
 # Changes
 
+## v3.6.0 [2026/10/20]
+
+- Bug fix: Multiline `detection.condition` values are now normalized to single-line expressions during conversion. This prevents YAML block scalar line breaks from causing parse errors in current versions of Hayabusa. (#55) (@YamatoSecurity)
+
 ## v3.5.0 [2026/10/14]
 
 - Bug fix: the `dns-client` service in `services-mapping.yaml` mapped to the Event Viewer display name `Microsoft-Windows-DNS Client Events/Operational` instead of the registered channel name `Microsoft-Windows-DNS-Client/Operational`, so none of the converted DNS Client rules matched. Hayabusa compares the `Channel` field exactly, and its channel filter also dropped the log before scanning. (#49) (@YamatoSecurity)

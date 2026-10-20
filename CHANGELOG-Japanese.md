@@ -1,5 +1,9 @@
 # 変更点
 
+## v3.6.0 [2026/10/20]
+
+- バグ修正: 複数行の`detection.condition`を変換時に単一行の式へ正規化するようにした。これにより、YAMLブロックスカラーの改行が現在のHayabusaでパースエラーを引き起こす問題を防止する。 (#55) (@YamatoSecurity)
+
 ## v3.5.0 [2026/10/14]
 
 - バグ修正: `services-mapping.yaml`の`dns-client`サービスが、登録されているチャンネル名`Microsoft-Windows-DNS-Client/Operational`ではなく、イベントビューアーの表示名`Microsoft-Windows-DNS Client Events/Operational`にマッピングされていた。そのため、変換後のDNSクライアントルールが一致せず、Hayabusaのチャンネルフィルターもスキャン前にログを除外していた。(#49) (@YamatoSecurity)

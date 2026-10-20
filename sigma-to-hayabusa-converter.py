@@ -93,6 +93,16 @@ def get_terminal_keys_recursive(dictionary, keys=None) -> list[str]:
     return keys
 
 
+def normalize_rule_condition(obj: dict) -> None:
+    """Rewrite a rule's condition as a single-line expression in place."""
+    detection = obj.get("detection")
+    if not isinstance(detection, dict):
+        return
+    condition = detection.get("condition")
+    if isinstance(condition, str):
+        detection["condition"] = " ".join(condition.split())
+
+
 def convert_special_val(key: str, value: str | list[str]) -> str | list[str]:
     """
     ProcessIdとIntegrityLevelとOperationTypeはValueの形式が違うため、変換する
@@ -423,6 +433,8 @@ class LogsourceConverter:
         logsourceのcategory/serviceをlogsource_mapに基づき変換し、変換後の内容でdetectionブロックを更新する
         """
         obj_list = create_obj(base_dir=None, file_name=self.sigma_path)
+        for obj in obj_list:
+            normalize_rule_condition(obj)
         if len(obj_list) == 1:
             logsources = self.check_and_get_logsource(obj_list[0])
             if not logsources:

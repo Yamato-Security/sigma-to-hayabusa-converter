@@ -1,4 +1,6 @@
 from unittest import TestCase
+from tempfile import TemporaryDirectory
+
 from logsource_mapping import *
 
 
@@ -60,6 +62,57 @@ class TestLogSourceMapper(TestCase):
         condition = "select | count(Image) by Workstation > 10"
         self.assertEqual(ls.get_condition(condition, [], {"Image": "NewProcessName"}),
                          "(process_creation and select) | count(NewProcessName) by Workstation > 10")
+
+    def test_multiline_condition_is_dumped_on_one_line(self):
+        rule = """\
+title: Multiline condition
+logsource:
+    category: process_creation
+detection:
+    selection_wevtutil_img:
+        Image: wevtutil.exe
+    selection_wevtutil_cli_clear:
+        CommandLine: cl
+    selection_logman_img:
+        Image: logman.exe
+    selection_logman_update:
+        CommandLine: update
+    selection_pwsh_img:
+        Image: pwsh.exe
+    selection_pwsh_cli:
+        CommandLine: Set-EtwTraceProvider
+    condition: |
+        (selection_wevtutil_img and 1 of selection_wevtutil_cli_*)
+        or (all of selection_logman_*)
+        or (all of selection_pwsh_*)
+"""
+        logsource = LogSource(
+            category="process_creation",
+            service="sysmon",
+            channel="Microsoft-Windows-Sysmon/Operational",
+            event_id=1,
+        )
+        expected_condition = (
+            "process_creation and ((selection_wevtutil_img and 1 of "
+            "selection_wevtutil_cli_*) or (all of selection_logman_*) or "
+            "(all of selection_pwsh_*))"
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            rule_path = Path(temp_dir, "rule.yml")
+            rule_path.write_text(rule, encoding="utf-8")
+            converter = LogsourceConverter(
+                str(rule_path),
+                {"process_creation": [logsource]},
+                {"process_creation": {}},
+            )
+
+            converter.convert()
+            _, output = converter.dump_yml("", temp_dir)[0]
+            converted = list(ruamel.yaml.YAML().load_all(output))[0]
+
+        self.assertEqual(converted["detection"]["condition"], expected_condition)
+        self.assertNotIn("condition: |", output)
 
     def test_get_logsources(self):
         script_dir = os.path.dirname(os.path.abspath(__file__))
