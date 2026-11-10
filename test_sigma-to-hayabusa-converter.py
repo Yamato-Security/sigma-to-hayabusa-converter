@@ -4,6 +4,190 @@ from tempfile import TemporaryDirectory
 from logsource_mapping import *
 
 
+class TestServiceFieldMappings(TestCase):
+    def convert(self, detection, service="windefend", fields=None, logsource=None):
+        channels = {
+            "windefend": "Microsoft-Windows-Windows Defender/Operational",
+            "security": "Security", "system": "System",
+            "wmi": "Microsoft-Windows-WMI-Activity/Operational",
+            "smbclient-connectivity": "Microsoft-Windows-SmbClient/Connectivity",
+            "terminalservices-localsessionmanager": "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational",
+        }
+        obj = {"title": "Scoped service fields", "id": "e5b97fea-a1d2-4b88-bf29-cc98d3e7ef00",
+               "logsource": {"product": "windows", "service": service}, "detection": detection}
+        if fields is not None:
+            obj["fields"] = fields
+        ls = logsource or LogSource(None, service, channels[service], None)
+        return LogsourceConverter("test.yml", {}, {}).convert_rule(obj, ls)
+
+    def test_defender_5007_values_keep_modifiers(self):
+        result = self.convert({"selection": {"EventID": 5007, "NewValue|contains|all": ["one", "two"],
+                                             "OldValue|endswith": "three"}, "condition": "selection"})
+        self.assertEqual(result["detection"]["selection"],
+                         {"EventID": 5007, "New_Value|contains|all": ["one", "two"], "Old_Value|endswith": "three"})
+
+    def test_separate_predicates_inherit_a_proven_5007_scope(self):
+        detection = {"allowed_apps_key": {"EventID": 5007, "NewValue|contains": "AllowedApplications"},
+                     "allowed_apps_path": {"NewValue|contains": ["\\Users\\Public\\", "\\Windows\\Temp\\"]},
+                     "protected_folders": {"EventID": 5007, "OldValue|contains": "ProtectedFolders"},
+                     "condition": "all of allowed_apps* or protected_folders"}
+        converted = self.convert(detection)["detection"]
+        self.assertIn("New_Value|contains", converted["allowed_apps_path"])
+        self.assertIn("Old_Value|contains", converted["protected_folders"])
+
+    def test_other_events_and_unproven_scopes_keep_original_value_fields(self):
+        for event_id in [5001, 1116, [5007, 5001], "500*", None]:
+            with self.subTest(event_id=event_id):
+                selection = {"NewValue": "new", "OldValue": "old"}
+                if event_id is not None:
+                    selection["EventID"] = event_id
+                result = self.convert({"selection": selection, "condition": "selection"})
+                self.assertEqual(result["detection"]["selection"], selection)
+
+    def test_mixed_event_branches_only_rename_the_5007_branch(self):
+        result = self.convert({"config": {"EventID": 5007, "NewValue": "new"},
+                               "other": {"EventID": 5001, "NewValue": "other"},
+                               "condition": "config or other"})["detection"]
+        self.assertIn("New_Value", result["config"])
+        self.assertIn("NewValue", result["other"])
+
+    def test_selector_alternatives_keep_their_own_event_scopes(self):
+        result = self.convert({"selection": [{"EventID": 5007, "NewValue": "a"},
+                                               {"EventID": 5001, "NewValue": "b"}],
+                               "condition": "selection"})["detection"]["selection"]
+        self.assertEqual(result, [{"EventID": 5007, "New_Value": "a"}, {"EventID": 5001, "NewValue": "b"}])
+
+    def test_negated_event_constraint_does_not_enable_a_rule_wide_rename(self):
+        for condition in ["not event and path", "not (event) and path", "path or event"]:
+            with self.subTest(condition=condition):
+                converted = self.convert({"event": {"EventID": 5007}, "path": {"NewValue": "test"},
+                                          "condition": condition})["detection"]
+                self.assertIn("NewValue", converted["path"])
+
+    def test_and_or_precedence_and_parentheses(self):
+        for condition, maps in [("event and path or other", False),
+                                ("event and (path or other)", True),
+                                ("(event and path) or (event and other)", True)]:
+            with self.subTest(condition=condition):
+                result = self.convert({"event": {"EventID": 5007}, "path": {"NewValue": "x"},
+                                       "other": {"OldValue": "y"}, "condition": condition})["detection"]
+                self.assertIn("New_Value" if maps else "NewValue", result["path"])
+
+    def test_all_and_one_of_them(self):
+        for condition, maps in [("all of them", True), ("1 of them", False), ("2 of them", False)]:
+            with self.subTest(condition=condition):
+                result = self.convert({"event": {"EventID": 5007}, "path": {"NewValue": "x"},
+                                       "condition": condition})["detection"]
+                self.assertIn("New_Value" if maps else "NewValue", result["path"])
+
+    def test_source_and_process_names_apply_to_defender_including_exclusions(self):
+        detection = {"selection": {"EventID": 1121, "SourceName": "AMSI"},
+                     "filter": {"ProcessName|startswith": "C:\\Windows\\", "ProcessName|endswith": "svchost.exe"},
+                     "condition": "selection and not filter"}
+        result = self.convert(detection)["detection"]
+        self.assertIn("Source_Name", result["selection"])
+        self.assertIn("WindowsDefenderProcessName|startswith", result["filter"])
+        self.assertIn("WindowsDefenderProcessName|endswith", result["filter"])
+
+    def test_security_fields_are_not_globally_remapped(self):
+        selection = {"EventID": 4657, "NewValue": "new", "OldValue": "old", "ProcessName": "reg.exe", "ProcessId": 0}
+        result = self.convert({"selection": selection, "condition": "selection"}, service="security")
+        self.assertEqual(result["detection"]["selection"], selection)
+
+    def test_smb_address_and_unrelated_source_name_stay_literal(self):
+        selection = {"EventID": 30804, "Address|startswith": "192.168.", "SourceName": "test", "ProcessName": "test.exe"}
+        result = self.convert({"selection": selection, "condition": "selection"}, service="smbclient-connectivity")
+        self.assertEqual(result["detection"]["selection"], selection)
+
+    def test_nested_wmi_and_rdp_fields_are_left_for_hayabusa_lookup(self):
+        for service, selection in [
+            ("wmi", {"EventID": 5858, "Operation|contains|all": ["Win32_NTEventlogFile", "ClearEventLog"]}),
+            ("wmi", {"EventID": 5859, "Provider": "SCM Event Provider", "Query": "select *", "User": "S-1-5-18", "PossibleCause": "Permanent"}),
+            ("terminalservices-localsessionmanager", {"EventID": 21, "Address|contains": "16777216"}),
+        ]:
+            with self.subTest(service=service, selection=selection):
+                result = self.convert({"selection": selection, "condition": "selection"}, service=service)
+                self.assertEqual(result["detection"]["selection"], selection)
+
+    def test_system_pid_requires_both_7045_and_scm(self):
+        for event_id, provider, renamed in [(7045, "Service Control Manager", True),
+                                            (7040, "Service Control Manager", False),
+                                            (7045, "Another Provider", False), (7045, None, False)]:
+            with self.subTest(event_id=event_id, provider=provider):
+                selection = {"EventID": event_id, "ProcessId": 0}
+                if provider:
+                    selection["Provider_Name"] = provider
+                result = self.convert({"selection": selection, "condition": "selection"}, service="system")
+                self.assertIn("ExecutionProcessID" if renamed else "ProcessId", result["detection"]["selection"])
+
+    def test_system_pid_inherits_separate_scm_and_event_constraints(self):
+        result = self.convert({"event": {"EventID": 7045}, "provider": {"ProviderName": "Service Control Manager"},
+                               "selection": {"ProcessId": 0}, "condition": "event and provider and selection"}, service="system")
+        self.assertEqual(result["detection"]["selection"], {"ExecutionProcessID": 0})
+
+    def test_mixed_channel_logsource_is_not_globally_remapped(self):
+        ls = LogSource(None, "mixed", ["Security", "Microsoft-Windows-Windows Defender/Operational"], None)
+        selection = {"EventID": 5007, "ProcessName": "x", "NewValue": "y"}
+        result = self.convert({"selection": selection, "condition": "selection"}, logsource=ls)
+        self.assertEqual(result["detection"]["selection"], selection)
+
+    def test_fields_and_field_references_are_renamed_but_literals_and_selectors_are_not(self):
+        result = self.convert({"NewValue": {"EventID": 5007, "NewValue|fieldref": "OldValue",
+                                            "SourceName|equalsfield": "ProcessName", "CommandLine|contains": "NewValue"},
+                               "condition": "NewValue"}, fields=["NewValue", "OldValue", "ProcessName", "CommandLine"])
+        self.assertEqual(result["fields"], ["New_Value", "Old_Value", "WindowsDefenderProcessName", "CommandLine"])
+        self.assertIn("NewValue", result["detection"])
+        self.assertEqual(result["detection"]["NewValue"]["New_Value|fieldref"], "Old_Value")
+        self.assertEqual(result["detection"]["NewValue"]["Source_Name|equalsfield"], "WindowsDefenderProcessName")
+        self.assertEqual(result["detection"]["NewValue"]["CommandLine|contains"], "NewValue")
+        self.assertEqual(result["detection"]["condition"], "windefend and NewValue")
+
+    def test_legacy_aggregation_fields_are_renamed(self):
+        result = self.convert({"selection": {"EventID": 5007, "NewValue|contains": "test"},
+                               "condition": "selection | count(NewValue) by OldValue > 1"})
+        self.assertIn("count(New_Value) by Old_Value", result["detection"]["condition"])
+
+    def test_mixed_event_output_fields_retain_both_names(self):
+        result = self.convert({"config": {"EventID": 5007, "NewValue": "new"},
+                               "other": {"EventID": 5001, "NewValue": "other"},
+                               "condition": "config or other"}, fields=["NewValue", "CommandLine"])
+        self.assertEqual(result["fields"], ["NewValue", "New_Value", "CommandLine"])
+
+    def test_unrelated_output_field_order_and_duplicates_are_preserved(self):
+        fields = ["ServiceName", "EventID", "ServiceName"]
+        result = self.convert({"selection": {"EventID": 7000}, "condition": "selection"}, service="system", fields=fields)
+        self.assertEqual(result["fields"], fields)
+
+    def test_mixed_event_aggregation_cannot_silently_count_the_wrong_field(self):
+        with self.assertRaisesRegex(ValueError, "Mixed-event aggregation"):
+            self.convert({"config": {"EventID": 5007, "NewValue": "new"},
+                          "other": {"EventID": 5001, "NewValue": "other"},
+                          "condition": "config or other | count(NewValue) > 1"})
+
+    def test_mapping_collision_is_an_explicit_error(self):
+        with self.assertRaisesRegex(ValueError, "mapping collision"):
+            self.convert({"selection": {"EventID": 5007, "NewValue": "one", "New_Value": "two"}, "condition": "selection"})
+
+    def test_key_comments_survive_conversion(self):
+        rule = ruamel.yaml.YAML().load("""\
+title: Comments
+id: e5b97fea-a1d2-4b88-bf29-cc98d3e7ef00
+logsource:
+    product: windows
+    service: windefend
+detection:
+    selection:
+        EventID: 5007
+        NewValue: test # important inline comment
+    condition: selection
+""")
+        ls = LogSource(None, "windefend", "Microsoft-Windows-Windows Defender/Operational", None)
+        result = LogsourceConverter("test.yml", {}, {}).convert_rule(rule, ls)
+        output = StringIO()
+        ruamel.yaml.YAML().dump(result, output)
+        self.assertRegex(output.getvalue(), r"New_Value: test\s+# important inline comment")
+
+
 class TestLogSourceMapper(TestCase):
     def test_create_service_map(self):
         res = create_service_map(create_obj(os.path.dirname(os.path.abspath(__file__)), "services-mapping.yaml")[0])

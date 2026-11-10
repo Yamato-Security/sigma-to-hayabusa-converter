@@ -20,6 +20,7 @@
       - [Multiple channel example:](#multiple-channel-example)
       - [Current list of service mappings](#current-list-of-service-mappings)
       - [Service mapping sources](#service-mapping-sources)
+    - [Provider-specific field names](#provider-specific-field-names)
     - [Category fields](#category-fields)
       - [Category field example:](#category-field-example)
       - [Current list of category mappings](#current-list-of-category-mappings)
@@ -160,6 +161,30 @@ Channel:
 
 We have created YAML mapping files for services to channel names which we periodcially maintain and host in this repository.
 They are based on the service mapping information from [https://github.com/SigmaHQ/sigma/blob/master/tests/thor.yml](https://github.com/SigmaHQ/sigma/blob/master/tests/thor.yml) as although this does not seem to be an offical generic config file for people to use, it seems to be the most up-to-date.
+
+### Provider-specific field names
+
+Some providers use spaces in their raw field names. The converter maps these names to Hayabusa
+aliases only in the appropriate channel and, where needed, a proven event/provider scope:
+
+| Channel and scope | Sigma field | Hayabusa field |
+|---|---|---|
+| Windows Defender/Operational, Event 5007 | `NewValue`, `OldValue` | `New_Value`, `Old_Value` |
+| Windows Defender/Operational | `SourceName`, `ProcessName` | `Source_Name`, `WindowsDefenderProcessName` |
+| System, Event 7045, Service Control Manager | `ProcessId` | `ExecutionProcessID` |
+
+Use a current [Hayabusa rules configuration](https://github.com/Yamato-Security/hayabusa-rules/tree/main/config).
+It also defines `Feature_Name` for Defender's raw `Feature Name` field; this rule field does not
+need renaming. Security's `NewValue`, `OldValue`, and `ProcessName`, and SMB's `Address` remain
+unchanged. Current Hayabusa resolves the nested WMI and RDP fields through its recursive
+EventData/UserData lookup, so those rule fields remain unchanged too.
+
+Event scopes come from positive detection conditions, including AND/OR, parentheses, and
+`1 of`/`all of`. A negated or unknown event constraint cannot enable a rule-wide mapping.
+Mixed-event selector alternatives keep their own scopes. Modifiers, field references, output
+fields and unambiguous legacy aggregation references are preserved or renamed consistently.
+A mapping collision or mixed-event aggregation needing two different field names is reported
+as an error; split such an aggregation rule by event ID.
 
 ### Category fields
 

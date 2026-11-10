@@ -20,6 +20,7 @@
             - [複数`channel`の例:](#複数channelの例)
             - [現在の`service`マッピングのリスト](#現在のserviceマッピングのリスト)
             - [Serviceマッピングのソース](#Serviceマッピングのソース)
+        - [プロバイダー固有のフィールド名](#プロバイダー固有のフィールド名)
         - [Categoryフィールド](#Categoryフィールド)
             - [Categoryフィールドの例:](#Categoryフィールドの例)
             - [現在の`category`マッピングのリスト](#現在のcategoryマッピングのリスト)
@@ -160,6 +161,30 @@ Channel:
 
 私たちは、serviceとchannelをマッピングするためのYAMLファイルを作成し、このリポジトリで定期的にメンテナンスし、ホスティングしています。
 これらのファイルは、https://github.com/SigmaHQ/sigma/blob/master/tests/thor.yml からのサービスマッピング情報に基づいています。このファイルは、公式の汎用設定ファイルではないようですが、最も最新の情報を含んでいるようです。
+
+### プロバイダー固有のフィールド名
+
+一部のプロバイダーは、生のフィールド名に空白を使用します。コンバーターは、対象のチャンネルと、
+必要に応じてイベント・プロバイダーの条件を確認したうえで Hayabusa のエイリアスへ変換します。
+
+| チャンネルと条件 | Sigma フィールド | Hayabusa フィールド |
+|---|---|---|
+| Windows Defender/Operational、イベント 5007 | `NewValue`、`OldValue` | `New_Value`、`Old_Value` |
+| Windows Defender/Operational | `SourceName`、`ProcessName` | `Source_Name`、`WindowsDefenderProcessName` |
+| System、イベント 7045、Service Control Manager | `ProcessId` | `ExecutionProcessID` |
+
+最新の [Hayabusa ルール設定](https://github.com/Yamato-Security/hayabusa-rules/tree/main/config) を使用してください。
+Defender の生フィールド `Feature Name` に対応する `Feature_Name` も設定に定義されます。
+このルールのフィールド名を変える必要はありません。Security の `NewValue`、`OldValue`、`ProcessName` と、
+SMB の `Address` は変更しません。現在の Hayabusa は EventData/UserData 内を再帰的に検索するため、
+入れ子になった WMI と RDP のフィールドもそのまま利用できます。
+
+イベントの適用範囲は、AND/OR、括弧、`1 of`/`all of` を含む肯定条件から判断します。
+否定された条件や不明なイベント条件によって、ルール全体の変換を有効にはしません。
+複数イベントの選択肢は、それぞれの範囲を保持します。モディファイア、フィールド参照、出力フィールド、
+一意に変換できる従来形式の集計参照も整合するように処理します。
+変換先の衝突や、異なるフィールド名が必要な複数イベントの集計はエラーとして報告するため、
+そのような集計ルールはイベント ID ごとに分割してください。
 
 ### Categoryフィールド
 

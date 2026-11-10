@@ -1,5 +1,9 @@
 # Changes
 
+## Unreleased [xxxx/xx/xx]
+
+- Fix provider-specific field conversions for Defender and Service Control Manager. Scope Defender value fields to Event 5007 and SCM process IDs to System 7045; preserve unrelated Security/SMB fields, modifiers, field references and inline comments. Add regression tests for missing detections, exclusions and mixed-event conditions. (#57) (@YamatoSecurity)
+
 ## v3.6.0 [2026/10/20]
 
 - Bug fix: Multiline `detection.condition` values are now normalized to single-line expressions during conversion. This prevents YAML block scalar line breaks from causing parse errors in current versions of Hayabusa. (#55) (@YamatoSecurity)
