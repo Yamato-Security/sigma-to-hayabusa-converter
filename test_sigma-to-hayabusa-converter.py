@@ -364,3 +364,215 @@ detection:
         inp = {"title": "X", "id": original_uuid, "related": [{"id": "a", "type": "similar"}]}
         res = assign_uuid_for_convert_rules(inp, "abc")
         self.assertEqual(res, {"title":"X", "id": "04428db4-0588-7e14-0c46-c99384f8fc4c", "related": [{'id': 'a', 'type': 'similar'}, {"id": original_uuid, "type": "derived"}]})
+
+    def _registry_event_logsources(self):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        service2channel = create_service_map(create_obj(script_dir, "services-mapping.yaml")[0])
+        sysmon_map = create_category_map(create_obj(script_dir, 'sysmon-category-mapping.yaml')[0], service2channel)
+        win_audit_map = create_category_map(create_obj(script_dir, 'builtin-category-mapping.yaml')[0], service2channel)
+        all_category_map = merge_category_map(service2channel, [sysmon_map, win_audit_map])
+        registry_field_map = create_field_map("fieldmappings_registry", create_obj(script_dir, 'builtin-category-mapping.yaml')[0])
+        field_map = {"registry_event": registry_field_map}
+        return all_category_map["registry_event"], field_map
+
+    def _azorult_rule(self):
+        return {
+            "title": "Registry Entries For Azorult Malware",
+            "id": "f7f9ab88-7557-4a69-b30e-0a8f91b3a0e7",
+            "logsource": {"product": "windows", "category": "registry_event"},
+            "detection": {
+                "selection": {
+                    "EventID": [12, 13],
+                    "TargetObject|contains": "SYSTEM\\",
+                    "TargetObject|endswith": "\\services\\localNETService",
+                },
+                "condition": "selection",
+            },
+        }
+
+    def test_registry_event_drops_incompatible_eventid_for_security(self):
+        # A registry_event rule that hardcodes the Sysmon IDs 12/13 must not AND
+        # them with the Security-log EventID 4657 (that can never match). The
+        # Sysmon-only EventID should be dropped so the Security rule is usable,
+        # while the Sysmon conversion keeps the overlapping EventID.
+        logsources, field_map = self._registry_event_logsources()
+        for ls in logsources:
+            lc = LogsourceConverter("azorult.yml", {}, field_map)
+            converted = lc.convert_rule(self._azorult_rule(), ls)
+            if ls.event_id == 4657:  # Security
+                self.assertIsNotNone(converted)
+                self.assertNotIn("EventID", converted["detection"]["selection"])
+                self.assertEqual(converted["detection"]["registry_event"]["EventID"], 4657)
+                self.assertIn("ObjectName|contains", converted["detection"]["selection"])
+            else:  # Sysmon (12/13/14) overlaps 12/13, so it is kept
+                self.assertIsNotNone(converted)
+                self.assertEqual(converted["detection"]["selection"]["EventID"], [12, 13])
+
+
+class TestCategoryEventIDRestrictions(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        directory = os.path.dirname(os.path.abspath(__file__))
+        services = create_service_map(create_obj(directory, "services-mapping.yaml")[0])
+        native = create_obj(directory, "builtin-category-mapping.yaml")[0]
+        cls.logs = merge_category_map(services, [
+            create_category_map(create_obj(directory, "sysmon-category-mapping.yaml")[0], services),
+            create_category_map(native, services),
+        ])
+        cls.fields = {}
+        for categories, mapping in [
+            (["registry_event", "registry_set", "registry_add", "registry_delete"], "registry"),
+            (["process_creation"], "process"), (["network_connection"], "network"),
+            (["wmi_event"], "wmi"),
+        ]:
+            for category in categories:
+                cls.fields[category] = create_field_map("fieldmappings_" + mapping, native)
+
+    def convert(self, detection, category="registry_event", service="security"):
+        obj = {"title": "Event ID restriction regression", "id": "da57aa42-d688-43d4-a1bc-63f421b7a967",
+               "logsource": {"product": "windows", "category": category}, "detection": detection}
+        logsource = next(ls for ls in self.logs[category] if ls.service == service)
+        return LogsourceConverter("eventid-regression.yml", {}, self.fields).convert_rule(obj, logsource)
+
+    def test_source_id_is_removed_only_when_target_supplies_its_equivalent(self):
+        for ids in [13, "13", [13], ["12", "13"], [12, 13, 14]]:
+            with self.subTest(ids=ids):
+                result = self.convert({"selection": {"EventID": ids, "TargetObject|endswith": "\\malware"},
+                                       "condition": "selection"})["detection"]
+                self.assertEqual(result["registry_event"]["EventID"], 4657)
+                self.assertEqual(result["selection"], {"ObjectName|endswith": "\\malware"})
+
+    def test_sysmon_subsets_are_preserved_including_their_original_types(self):
+        for ids in [12, 13, 14, [12, 13], ["12", "13"], [12, 13, 14]]:
+            with self.subTest(ids=ids):
+                result = self.convert({"selection": {"EventID": ids, "TargetObject|endswith": "\\malware"},
+                                       "condition": "selection"}, service="sysmon")["detection"]
+                self.assertEqual(result["selection"]["EventID"], ids)
+
+    def test_correct_security_id_is_not_removed(self):
+        for ids in [4657, "4657", [4657], [13, 4657]]:
+            with self.subTest(ids=ids):
+                result = self.convert({"selection": {"EventID": ids, "TargetObject|endswith": "\\malware"},
+                                       "condition": "selection"})["detection"]
+                self.assertEqual(result["selection"]["EventID"], ids)
+
+    def test_service_specific_event_ids_remain_unchanged(self):
+        for service, channel, ids in [("security", "Security", [4657, 4697]),
+                                      ("system", "System", 7045),
+                                      ("windefend", DEFENDER_CHANNEL, 5007),
+                                      ("wmi", "Microsoft-Windows-WMI-Activity/Operational", 5859)]:
+            with self.subTest(service=service):
+                obj = {"title": "Native IDs", "id": "da57aa42-d688-43d4-a1bc-63f421b7a967",
+                       "logsource": {"product": "windows", "service": service},
+                       "detection": {"selection": {"EventID": ids}, "condition": "selection"}}
+                ls = LogSource(None, service, channel, None)
+                result = LogsourceConverter("native.yml", {}, {}).convert_rule(obj, ls)
+                self.assertEqual(result["detection"]["selection"]["EventID"], ids)
+
+    def test_negative_filters_keep_unrepresentable_ids(self):
+        for ids in [12, 14, 9999, [12, 14]]:
+            with self.subTest(ids=ids):
+                result = self.convert({"selection": {"TargetObject|contains": "malware"},
+                                       "filter": {"EventID": ids, "TargetObject|contains": "benign"},
+                                       "condition": "selection and not filter"})["detection"]
+                self.assertEqual(result["filter"]["EventID"], ids)
+                self.assertEqual(result["filter"]["ObjectName|contains"], "benign")
+
+    def test_representable_negative_filter_keeps_its_remaining_predicates(self):
+        result = self.convert({"selection": {"TargetObject|contains": "malware"},
+                               "filter": {"EventID": 13, "TargetObject|contains": "benign"},
+                               "condition": "selection and not filter"})["detection"]
+        self.assertEqual(result["filter"], {"ObjectName|contains": "benign"})
+
+    def test_event_only_selectors_and_filters_do_not_become_empty_maps(self):
+        for ids, expected in [(13, 4657), ("13", 4657), ([12, 13], [4657])]:
+            with self.subTest(ids=ids):
+                result = self.convert({"selection": {"EventID": ids}, "condition": "selection"})
+                self.assertEqual(result["detection"]["selection"], {"EventID": expected})
+        result = self.convert({"selection": {"TargetObject|contains": "malware"},
+                               "filter": {"EventID": 13}, "condition": "selection and not filter"})
+        self.assertEqual(result["detection"]["filter"], {"EventID": 4657})
+
+    def test_reverse_registry_conversion_preserves_the_narrower_value_set_scope(self):
+        result = self.convert({"selection": {"EventID": 4657, "TargetObject|contains": "malware"},
+                               "condition": "selection"}, service="sysmon")["detection"]
+        self.assertEqual(result["registry_event"]["EventID"], [12, 13, 14])
+        self.assertEqual(result["selection"]["EventID"], 13)
+
+    def test_unsupported_positive_restrictions_skip_instead_of_broadening(self):
+        for ids in [12, 14, [12, 14], 9999]:
+            with self.subTest(ids=ids):
+                self.assertIsNone(self.convert({"selection": {"EventID": ids, "TargetObject|contains": "malware"},
+                                                "condition": "selection"}))
+
+    def test_or_branches_do_not_broaden_or_discard_a_valid_alternative(self):
+        for detection in [
+            {"creation": {"EventID": 12, "TargetObject|contains": "creation"},
+             "value": {"EventID": 13, "TargetObject|contains": "value"}, "condition": "creation or value"},
+            {"creation": {"EventID": 12, "TargetObject|contains": "creation"},
+             "value": {"EventID": 13, "TargetObject|contains": "value"}, "condition": "1 of *"},
+        ]:
+            with self.subTest(condition=detection["condition"]):
+                result = self.convert(detection)["detection"]
+                self.assertEqual(result["creation"]["EventID"], 12)
+                self.assertEqual(result["value"], {"ObjectName|contains": "value"})
+        result = self.convert({"selection": [{"EventID": 12, "TargetObject|contains": "creation"},
+                                             {"EventID": 13, "TargetObject|contains": "value"}],
+                               "condition": "selection"})["detection"]
+        self.assertEqual(result["selection"], [{"EventID": 12, "ObjectName|contains": "creation"},
+                                               {"ObjectName|contains": "value"}])
+
+    def test_unknown_ids_in_a_mixed_list_are_not_silently_removed(self):
+        result = self.convert({"selection": {"EventID": [13, 9999], "TargetObject|contains": "malware"},
+                               "condition": "selection"})["detection"]
+        self.assertEqual(result["selection"]["EventID"], [4657, 9999])
+
+    def test_nonliteral_and_modified_eventid_tests_are_preserved(self):
+        for key, value in [("EventID", "13*"), ("EventID|re", "^13$"),
+                           ("EventID|gte", 12), ("EventID|fieldref", "OtherID")]:
+            with self.subTest(key=key):
+                result = self.convert({"selection": {key: value, "TargetObject|contains": "malware"},
+                                       "condition": "selection"})["detection"]
+                self.assertEqual(result["selection"][key], value)
+
+    def test_other_supported_cross_log_ids_and_correct_target_ids(self):
+        for category, service, source, target, predicate in [
+            ("process_creation", "security", 1, 4688, {"Image|endswith": "\\malware.exe"}),
+            ("process_creation", "sysmon", 4688, 1, {"Image|endswith": "\\malware.exe"}),
+            ("network_connection", "security", 3, 5156, {"SourceIp": "192.0.2.1"}),
+            ("network_connection", "sysmon", 5156, 3, {"SourceIp": "192.0.2.1"}),
+            ("wmi_event", "wmi", 21, 5861, {"Destination|contains": "malware"}),
+        ]:
+            with self.subTest(category=category, service=service):
+                detection = {"selection": {"EventID": source, **predicate}, "condition": "selection"}
+                result = self.convert(detection, category, service)["detection"]
+                self.assertEqual(result[category]["EventID"], target)
+                self.assertNotIn("EventID", result["selection"])
+                detection["selection"]["EventID"] = target
+                result = self.convert(detection, category, service)["detection"]
+                self.assertEqual(result["selection"]["EventID"], target)
+
+    def test_wmi_registration_subsets_are_not_widened_to_binding_events(self):
+        for ids in [19, 20, [19, 20]]:
+            with self.subTest(ids=ids):
+                detection = {"selection": {"EventID": ids, "Destination|contains": "malware"}, "condition": "selection"}
+                self.assertIsNone(self.convert(detection, "wmi_event", "wmi"))
+        result = self.convert({"selection": {"EventID": 5861, "Destination|contains": "malware"},
+                               "condition": "selection"}, "wmi_event", "sysmon")["detection"]
+        self.assertEqual(result["selection"]["EventID"], 21)
+
+    def test_category_selector_name_collision_and_aggregation(self):
+        for condition in ["registry_event", "registry_event | count() by TargetObject > 3"]:
+            with self.subTest(condition=condition):
+                result = self.convert({"registry_event": {"EventID": [12, 13], "TargetObject|contains": "malware"},
+                                       "condition": condition})["detection"]
+                self.assertEqual(result["logsource_mapping_registry_event"]["EventID"], 4657)
+                self.assertNotIn("EventID", result["registry_event"])
+                self.assertIn("logsource_mapping_registry_event and registry_event", result["condition"])
+
+    def test_input_detection_is_not_mutated_and_unrestricted_rule_stays_unrestricted(self):
+        detection = {"selection": {"TargetObject|contains": "malware"}, "condition": "selection"}
+        original = copy.deepcopy(detection)
+        result = self.convert(detection)["detection"]
+        self.assertEqual(detection, original)
+        self.assertNotIn("EventID", result["selection"])

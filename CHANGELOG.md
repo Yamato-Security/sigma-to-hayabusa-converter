@@ -2,6 +2,8 @@
 
 ## Unreleased [xxxx/xx/xx]
 
+- Fix hardcoded source Event IDs in category rules, including Azorult registry detection. Remove redundant source IDs only when a known cross-log mapping and the injected target restriction preserve the supported scope. Keep valid target IDs, narrower Sysmon subsets and exclusion filters; skip provably incompatible targets instead of broadening them. (#50) (@YamatoSecurity)
+
 - Fix provider-specific field conversions for Defender and Service Control Manager. Scope Defender value fields to Event 5007 and SCM process IDs to System 7045; preserve unrelated Security/SMB fields, modifiers, field references and inline comments. Add regression tests for missing detections, exclusions and mixed-event conditions. (#57) (@YamatoSecurity)
 
 ## v3.6.0 [2026/10/20]

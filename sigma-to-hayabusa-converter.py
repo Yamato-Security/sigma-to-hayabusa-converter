@@ -477,6 +477,61 @@ def convert_service_fields(obj, logsource):
         detection["condition"] = head + "|" + tail
 
 
+def normalize_category_event_ids(detection: dict, injected_key: str, logsource: LogSource) -> None:
+    """Retain ID restrictions unless an audited cross-log equivalent replaces them.
+
+    Registry 4657 covers value changes (Sysmon 13), not key creation/deletion
+    (12) or renames (14). WMI 5861 covers the binding represented by Sysmon 21,
+    not every filter/consumer registration (19/20). Unrepresentable IDs are not
+    a reason to turn a whole predicate into a broader, ID-less predicate.
+    """
+    target_ids = _literal_values(detection[injected_key].get("EventID"), numeric=True)
+    if not logsource.category or not target_ids or not isinstance(logsource.channel, str):
+        return
+    sysmon = "Microsoft-Windows-Sysmon/Operational"
+    wmi = "Microsoft-Windows-WMI-Activity/Operational"
+    pairs = {
+        "process_creation": [(sysmon, 1, "Security", 4688)],
+        "network_connection": [(sysmon, 3, "Security", 5156)],
+        "registry_set": [(sysmon, 13, "Security", 4657)],
+        "registry_event": [(sysmon, 13, "Security", 4657)],
+        "wmi_event": [(sysmon, 21, wmi, 5861)],
+    }.get(logsource.category, [])
+    known_ids = {event for first, a, second, b in pairs for event in (a, b)}
+    if logsource.category == "registry_event":
+        known_ids.update([12, 14])
+    elif logsource.category == "wmi_event":
+        known_ids.update([19, 20])
+    translations = {}
+    for first, a, second, b in pairs:
+        if logsource.channel == second and b in target_ids:
+            translations[a] = b
+        if logsource.channel == first and a in target_ids:
+            translations[b] = a
+
+    for name, selector in detection.items():
+        if name in (injected_key, "condition", "timeframe"):
+            continue
+        for block in selector if isinstance(selector, list) else [selector]:
+            if not isinstance(block, dict) or "EventID" not in block:
+                continue
+            original = block["EventID"]
+            selected = _literal_values(original, numeric=True)
+            if not selected or selected & target_ids:
+                continue  # Preserve meaningful overlapping/subset restrictions and nonliteral tests.
+            translated = {translations[event] for event in selected if event in translations}
+            if not translated:
+                continue  # Keep this predicate false in the target, including under NOT.
+            unknown = selected - known_ids
+            translated.update(unknown)
+            if not unknown and translated >= target_ids and len(block) > 1:
+                del block["EventID"]  # The injected category supplies the same restriction.
+            else:
+                # Keep narrower scopes and event-only predicates; never emit an empty map.
+                values = sorted(translated)
+                block["EventID"] = values if isinstance(original, list) or len(values) > 1 else values[0]
+
+
 @dataclass(frozen=True)
 class LogsourceConverter:
     sigma_path: str
@@ -593,11 +648,13 @@ class LogsourceConverter:
             new_obj["tags"] = [tag.replace("_", "-") for tag in new_obj["tags"]]
         detection = copy.deepcopy(new_obj['detection'])
         new_obj['detection'] = dict()
-        new_obj['detection'][ls.get_identifier_for_detection(list(detection.keys()))] = ls.get_detection()
+        injected_key = ls.get_identifier_for_detection(list(detection.keys()))
+        new_obj['detection'][injected_key] = ls.get_detection()
         for key, val in detection.items():
             key = re.sub(r"\.", "_", key)
             val = self.transform_field_recursive(ls.category, val, ls.need_field_conversion())
             new_obj['detection'][key] = val
+        normalize_category_event_ids(new_obj['detection'], injected_key, ls)
         cond = str(new_obj['detection']['condition'])
         if (cond.endswith("selection") or "selection and " in cond) and not ls.is_detectable(new_obj['detection'], True):
             LOGGER.error(
@@ -610,6 +667,11 @@ class LogsourceConverter:
         field_map = self.field_map[ls.category] if ls.category in self.field_map else dict()
         new_obj['detection']['condition'] = ls.get_condition(new_obj['detection']['condition'],
                                                              list(detection.keys()), field_map)
+        if ls.event_id is not None and _condition_values(new_obj['detection'], ("EventID",), numeric=True) == frozenset():
+            LOGGER.error(
+                f"Error while converting rule [{self.sigma_path}]: "
+                "EventID restrictions cannot match the target category. Conversion skipped.")
+            return None
         if ls.need_field_conversion() and "fields" in new_obj:
             fields = new_obj['fields']
             converted_fields = [field_map[f] for f in fields if f in field_map]
