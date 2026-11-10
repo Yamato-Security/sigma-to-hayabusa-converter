@@ -1,5 +1,9 @@
 # 変更点
 
+## Unreleased [xxxx/xx/xx]
+
+- Defender と Service Control Manager 固有のフィールド変換を修正。Defender の値フィールドはイベント 5007、SCM のプロセス ID は System 7045 に限定し、Security/SMB のフィールド、モディファイア、フィールド参照、行末コメントを保持する。未検知、除外条件、複数イベントを含む条件の回帰テストを追加。(#57) (@YamatoSecurity)
+
 ## v3.6.0 [2026/10/20]
 
 - バグ修正: 複数行の`detection.condition`を変換時に単一行の式へ正規化するようにした。これにより、YAMLブロックスカラーの改行が現在のHayabusaでパースエラーを引き起こす問題を防止する。 (#55) (@YamatoSecurity)
