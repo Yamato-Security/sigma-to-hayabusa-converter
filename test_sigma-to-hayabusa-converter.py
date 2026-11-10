@@ -1,5 +1,6 @@
 from unittest import TestCase
 from tempfile import TemporaryDirectory
+import subprocess
 
 from logsource_mapping import *
 
@@ -189,6 +190,55 @@ detection:
 
 
 class TestLogSourceMapper(TestCase):
+    def test_ignore_7045_unusual_client_rule_but_keep_security_variant(self):
+        script_dir = Path(__file__).resolve().parent
+        with TemporaryDirectory() as temp:
+            source = Path(temp) / "rules"
+            output = Path(temp) / "output"
+            source.mkdir()
+            (source / "system.yml").write_text("""\
+title: Service Installed By Unusual Client - System
+id: 71c276aa-49cd-43d2-b920-2dcd3e6962d5
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Provider_Name: Service Control Manager
+        EventID: 7045
+        ProcessId: 0
+    condition: selection
+""", encoding="utf-8")
+            (source / "security.yml").write_text("""\
+title: Service Installed By Unusual Client - Security
+id: c4e92a97-a9ff-4392-9d2d-7a4c642768ca
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_eid:
+        EventID: 4697
+    selection_pid:
+        - ClientProcessId: 0
+        - ParentProcessId: 0
+    condition: all of selection_*
+""", encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(script_dir / "sigma-to-hayabusa-converter.py"),
+                 "-r", str(source), "-o", str(output)],
+                cwd=script_dir, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("71c276aa-49cd-43d2-b920-2dcd3e6962d5", result.stdout + result.stderr)
+            self.assertIn("Conversion skipped", result.stdout + result.stderr)
+            files = list(output.rglob("*.yml"))
+            self.assertEqual(len(files), 1, [str(path) for path in files])
+            converted = create_obj(None, str(files[0]))[0]
+            self.assertEqual(converted["title"], "Service Installed By Unusual Client - Security")
+            self.assertEqual(converted["detection"]["selection_pid"],
+                             [{"ClientProcessId": 0}, {"ParentProcessId": 0}])
+            self.assertIn({"id": "c4e92a97-a9ff-4392-9d2d-7a4c642768ca", "type": "derived"}, converted["related"])
+
     def test_create_service_map(self):
         res = create_service_map(create_obj(os.path.dirname(os.path.abspath(__file__)), "services-mapping.yaml")[0])
         self.assertEqual(len(res.keys()), 43)

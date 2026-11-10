@@ -2,6 +2,8 @@
 
 ## Unreleased [xxxx/xx/xx]
 
+- System 7045 の「Service Installed By Unusual Client」ルールを上流の UUID で除外。イベントヘッダーの PID では、要求元やその親プロセスを特定できないため。Security 4697 版は維持し、CLI 変換の回帰テストを追加。(@YamatoSecurity)
+
 - Defender と Service Control Manager 固有のフィールド変換を修正。Defender の値フィールドはイベント 5007、SCM のプロセス ID は System 7045 に限定し、Security/SMB のフィールド、モディファイア、フィールド参照、行末コメントを保持する。未検知、除外条件、複数イベントを含む条件の回帰テストを追加。(#57) (@YamatoSecurity)
 
 ## v3.6.0 [2026/10/20]
