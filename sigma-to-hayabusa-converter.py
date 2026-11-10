@@ -93,6 +93,16 @@ def get_terminal_keys_recursive(dictionary, keys=None) -> list[str]:
     return keys
 
 
+def normalize_rule_condition(obj: dict) -> None:
+    """Rewrite a rule's condition as a single-line expression in place."""
+    detection = obj.get("detection")
+    if not isinstance(detection, dict):
+        return
+    condition = detection.get("condition")
+    if isinstance(condition, str):
+        detection["condition"] = " ".join(condition.split())
+
+
 def convert_special_val(key: str, value: str | list[str]) -> str | list[str]:
     """
     ProcessIdとIntegrityLevelとOperationTypeはValueの形式が違うため、変換する
@@ -152,19 +162,6 @@ def assign_uuid_for_convert_rules(obj: dict, logsource_hash: str) -> dict:
             else:
                 new_obj[k] = v  # idの次の行に挿入するためすべて代入しなおす
     return new_obj
-
-
-def eventid_set(value) -> set[str]:
-    """
-    EventIDの値(int/str/listのいずれか)を文字列のsetに正規化する
-    """
-    if value is None:
-        return set()
-    if isinstance(value, (int, str)):
-        return {str(value)}
-    if isinstance(value, list):
-        return {str(v) for v in value}
-    return set()
 
 
 def referenced_rule_is_uuid(obj: dict) -> bool:
@@ -289,6 +286,252 @@ class LogSource:
         return True
 
 
+DEFENDER_CHANNEL = "Microsoft-Windows-Windows Defender/Operational"
+
+
+def _intersect(left, right):
+    """None is an unconstrained set of possible field values."""
+    return right if left is None else left if right is None else left & right
+
+
+def _union(left, right):
+    return None if left is None or right is None else left | right
+
+
+def _literal_values(value, numeric=False):
+    values = value if isinstance(value, list) else [value]
+    if not values:
+        return None
+    if numeric:
+        if not all(type(v) is int or isinstance(v, str) and v.isdecimal() for v in values):
+            return None
+        return frozenset(int(v) for v in values)
+    if not all(isinstance(v, str) and not any(c in v for c in "*?") for v in values):
+        return None
+    return frozenset(v.casefold() for v in values)
+
+
+def _selector_values(selector, names, numeric=False):
+    if isinstance(selector, dict):
+        result = None
+        for name in names:
+            if name in selector:
+                result = _intersect(result, _literal_values(selector[name], numeric))
+        return result
+    if isinstance(selector, list) and selector:
+        values = [_selector_values(item, names, numeric) for item in selector]
+        return reduce(_union, values)
+    return None
+
+
+def _condition_values(detection, names, numeric=False):
+    """Conservatively prove constraints from positive selectors in a Sigma condition.
+
+    AND intersects possible values, OR unions them, and NOT proves no constraint.
+    Unsupported syntax is unconstrained. Merely mentioning EventID 5007 in a
+    negated selector must never enable a rule-wide 5007 field mapping.
+    """
+    condition = detection.get("condition")
+    if not isinstance(condition, str):
+        return None
+    tokens = re.findall(r"\(|\)|[^\s()]+", condition.split("|", 1)[0])
+    selectors = {k: v for k, v in detection.items() if k not in ("condition", "timeframe")}
+    position = 0
+
+    def take():
+        nonlocal position
+        if position == len(tokens):
+            raise ValueError("incomplete condition")
+        token = tokens[position]
+        position += 1
+        return token
+
+    def primary():
+        token = take()
+        if token == "not":
+            primary()
+            return None
+        if token == "(":
+            result = expression()
+            if take() != ")":
+                raise ValueError("unbalanced condition")
+            return result
+        if token in ("1", "all"):
+            if take() != "of":
+                raise ValueError("unsupported quantifier")
+            pattern = take()
+            values = [_selector_values(v, names, numeric) for k, v in selectors.items()
+                      if pattern == "them" or fnmatch.fnmatchcase(k, pattern)]
+            return reduce(_union if token == "1" else _intersect, values) if values else None
+        if token not in selectors:
+            raise ValueError("unknown selector")
+        return _selector_values(selectors[token], names, numeric)
+
+    def conjunction():
+        nonlocal position
+        result = primary()
+        while position < len(tokens) and tokens[position] == "and":
+            position += 1
+            result = _intersect(result, primary())
+        return result
+
+    def expression():
+        nonlocal position
+        result = conjunction()
+        while position < len(tokens) and tokens[position] == "or":
+            position += 1
+            result = _union(result, conjunction())
+        return result
+
+    try:
+        result = expression()
+        return result if position == len(tokens) else None
+    except ValueError:
+        return None
+
+
+def _service_field_map(channel, event_ids, providers):
+    if channel == DEFENDER_CHANNEL:
+        result = {"SourceName": "Source_Name", "ProcessName": "WindowsDefenderProcessName"}
+        if event_ids == frozenset({5007}):
+            result.update(NewValue="New_Value", OldValue="Old_Value")
+        return result
+    if channel == "System" and event_ids == frozenset({7045}) and providers == frozenset({"service control manager"}):
+        return {"ProcessId": "ExecutionProcessID"}
+    return {}
+
+
+def _rename_field(key, field_map):
+    field, separator, modifiers = key.partition("|")
+    return field_map.get(field, field) + separator + modifiers
+
+
+def _rename_selector(selector, field_map):
+    result = copy.deepcopy(selector)
+    result.clear()
+    for key, value in selector.items():
+        renamed = _rename_field(key, field_map)
+        if renamed in result:
+            raise ValueError(f"Service field mapping collision: {key} -> {renamed}")
+        if set(key.split("|")[1:]) & {"fieldref", "equalsfield", "startswithfield", "endswithfield"}:
+            if isinstance(value, str):
+                value = field_map.get(value, value)
+            elif isinstance(value, list):
+                value = [field_map.get(v, v) if isinstance(v, str) else v for v in value]
+        result[renamed] = value
+        # Keep ruamel's end-of-line comments attached to their renamed keys.
+        if renamed != key and hasattr(result, "ca") and key in result.ca.items:
+            result.ca.items[renamed] = result.ca.items.pop(key)
+    return result
+
+
+def convert_service_fields(obj, logsource):
+    """Map raw provider field names without changing Security/SMB fields or other EIDs.
+
+    Nested WMI and RDP fields already resolve through Hayabusa's recursive lookup.
+    Only proven event scopes enable aliases whose meaning changes by event ID.
+    """
+    channels = [logsource.channel] if isinstance(logsource.channel, str) else logsource.channel
+    if not channels or len(set(channels)) != 1 or channels[0] not in (DEFENDER_CHANNEL, "System"):
+        return
+    channel = channels[0]
+    detection = obj["detection"]
+    event_ids = _condition_values(detection, ("EventID",), numeric=True)
+    providers = _condition_values(detection, ("Provider_Name", "ProviderName"))
+    global_map = _service_field_map(channel, event_ids, providers)
+    local_maps = {}
+
+    def transform(selector):
+        if isinstance(selector, list):
+            return [transform(item) for item in selector]
+        if not isinstance(selector, dict):
+            return selector
+        local_ids = _intersect(event_ids, _selector_values(selector, ("EventID",), numeric=True))
+        local_providers = _intersect(providers, _selector_values(selector, ("Provider_Name", "ProviderName")))
+        field_map = _service_field_map(channel, local_ids, local_providers)
+        local_maps.update(field_map)
+        return _rename_selector(selector, field_map)
+
+    for name, selector in list(detection.items()):
+        if name not in ("condition", "timeframe"):
+            detection[name] = transform(selector)
+    if "fields" in obj:
+        fields = []
+        for field in obj["fields"]:
+            fields.append(global_map.get(field, field))
+            if field not in global_map and field in local_maps and local_maps[field] not in obj["fields"] and local_maps[field] not in fields:
+                fields.append(local_maps[field])
+        obj["fields"] = fields
+    # Only field references in the aggregation tail are names; selectors and
+    # literal detection values must remain unchanged, even if named NewValue.
+    condition = detection.get("condition")
+    if isinstance(condition, str) and "|" in condition:
+        head, tail = condition.split("|", 1)
+        aggregate_fields = re.findall(r"\bcount\s*\(\s*(\w+)\s*\)", tail)
+        for group in re.findall(r"\bby\s+([\w,]+)", tail):
+            aggregate_fields.extend(group.split(","))
+        if any(field in local_maps and field not in global_map for field in aggregate_fields):
+            raise ValueError("Mixed-event aggregation needs different field names; split the rule by event ID")
+        tail = re.sub(r"(\bcount\s*\(\s*)(\w+)(\s*\))", lambda m: m[1] + global_map.get(m[2], m[2]) + m[3], tail)
+        tail = re.sub(r"(\bby\s+)([\w,]+)", lambda m: m[1] + ",".join(global_map.get(f, f) for f in m[2].split(",")), tail)
+        detection["condition"] = head + "|" + tail
+
+
+def normalize_category_event_ids(detection: dict, injected_key: str, logsource: LogSource) -> None:
+    """Retain ID restrictions unless an audited cross-log equivalent replaces them.
+
+    Registry 4657 covers value changes (Sysmon 13), not key creation/deletion
+    (12) or renames (14). WMI 5861 covers the binding represented by Sysmon 21,
+    not every filter/consumer registration (19/20). Unrepresentable IDs are not
+    a reason to turn a whole predicate into a broader, ID-less predicate.
+    """
+    target_ids = _literal_values(detection[injected_key].get("EventID"), numeric=True)
+    if not logsource.category or not target_ids or not isinstance(logsource.channel, str):
+        return
+    sysmon = "Microsoft-Windows-Sysmon/Operational"
+    wmi = "Microsoft-Windows-WMI-Activity/Operational"
+    pairs = {
+        "process_creation": [(sysmon, 1, "Security", 4688)],
+        "network_connection": [(sysmon, 3, "Security", 5156)],
+        "registry_set": [(sysmon, 13, "Security", 4657)],
+        "registry_event": [(sysmon, 13, "Security", 4657)],
+        "wmi_event": [(sysmon, 21, wmi, 5861)],
+    }.get(logsource.category, [])
+    known_ids = {event for first, a, second, b in pairs for event in (a, b)}
+    if logsource.category == "registry_event":
+        known_ids.update([12, 14])
+    elif logsource.category == "wmi_event":
+        known_ids.update([19, 20])
+    translations = {}
+    for first, a, second, b in pairs:
+        if logsource.channel == second and b in target_ids:
+            translations[a] = b
+        if logsource.channel == first and a in target_ids:
+            translations[b] = a
+
+    for name, selector in detection.items():
+        if name in (injected_key, "condition", "timeframe"):
+            continue
+        for block in selector if isinstance(selector, list) else [selector]:
+            if not isinstance(block, dict) or "EventID" not in block:
+                continue
+            original = block["EventID"]
+            selected = _literal_values(original, numeric=True)
+            if not selected or selected & target_ids:
+                continue  # Preserve meaningful overlapping/subset restrictions and nonliteral tests.
+            translated = {translations[event] for event in selected if event in translations}
+            if not translated:
+                continue  # Keep this predicate false in the target, including under NOT.
+            unknown = selected - known_ids
+            translated.update(unknown)
+            if not unknown and translated >= target_ids and len(block) > 1:
+                del block["EventID"]  # The injected category supplies the same restriction.
+            else:
+                # Keep narrower scopes and event-only predicates; never emit an empty map.
+                values = sorted(translated)
+                block["EventID"] = values if isinstance(original, list) or len(values) > 1 else values[0]
+
+
 @dataclass(frozen=True)
 class LogsourceConverter:
     sigma_path: str
@@ -411,27 +654,7 @@ class LogsourceConverter:
             key = re.sub(r"\.", "_", key)
             val = self.transform_field_recursive(ls.category, val, ls.need_field_conversion())
             new_obj['detection'][key] = val
-        # A category rule can hardcode its source's event IDs (e.g. the Sysmon
-        # registry IDs 12/13) directly in a selection. When converting to a
-        # target whose mapped EventID differs (e.g. Security 4657), ANDing those
-        # with the injected EventID can never match. Drop such a disjoint EventID
-        # so the converted rule stays usable; if that empties the selection, the
-        # rule is not convertible for this target, so skip it.
-        mapped_eids = eventid_set(ls.event_id)
-        if mapped_eids:
-            for key, val in new_obj['detection'].items():
-                if key in (injected_key, "condition", "timeframe"):
-                    continue
-                for block in (val if isinstance(val, list) else [val]):
-                    if not (isinstance(block, dict) and "EventID" in block):
-                        continue
-                    sel_eids = eventid_set(block["EventID"])
-                    if sel_eids and not (sel_eids & mapped_eids):
-                        del block["EventID"]
-                        if not block:
-                            LOGGER.error(
-                                f"Error while converting rule [{self.sigma_path}]: selection [{key}] only constrains EventID(s) {sorted(sel_eids)} that cannot match the mapped EventID(s) {sorted(mapped_eids)}. Conversion skipped.")
-                            return None
+        normalize_category_event_ids(new_obj['detection'], injected_key, ls)
         cond = str(new_obj['detection']['condition'])
         if (cond.endswith("selection") or "selection and " in cond) and not ls.is_detectable(new_obj['detection'], True):
             LOGGER.error(
@@ -444,11 +667,17 @@ class LogsourceConverter:
         field_map = self.field_map[ls.category] if ls.category in self.field_map else dict()
         new_obj['detection']['condition'] = ls.get_condition(new_obj['detection']['condition'],
                                                              list(detection.keys()), field_map)
+        if ls.event_id is not None and _condition_values(new_obj['detection'], ("EventID",), numeric=True) == frozenset():
+            LOGGER.error(
+                f"Error while converting rule [{self.sigma_path}]: "
+                "EventID restrictions cannot match the target category. Conversion skipped.")
+            return None
         if ls.need_field_conversion() and "fields" in new_obj:
             fields = new_obj['fields']
             converted_fields = [field_map[f] for f in fields if f in field_map]
             not_converted_fields = [f for f in fields if f not in field_map]
             new_obj['fields'] = converted_fields + not_converted_fields
+        convert_service_fields(new_obj, ls)
         if "ruletype" not in new_obj:
             new_obj['ruletype'] = 'Sigma'
         return new_obj
@@ -458,6 +687,8 @@ class LogsourceConverter:
         logsourceのcategory/serviceをlogsource_mapに基づき変換し、変換後の内容でdetectionブロックを更新する
         """
         obj_list = create_obj(base_dir=None, file_name=self.sigma_path)
+        for obj in obj_list:
+            normalize_rule_condition(obj)
         if len(obj_list) == 1:
             logsources = self.check_and_get_logsource(obj_list[0])
             if not logsources:
